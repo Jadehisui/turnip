@@ -1,0 +1,38 @@
+[
+  {
+    "id":      "nl-01",
+    "name":    "NL-01",
+    "country": "Netherlands",
+    "flag":    "🇳🇱",
+    "host":    "YOUR_NL_SERVER_IP",
+    "region":  "nl",
+    "active":  true
+  },
+  {
+    "id":      "us-01",
+    "name":    "US-01",
+    "country": "United States",
+    "flag":    "🇺🇸",
+    "host":    "YOUR_US_SERVER_IP",
+    "region":  "us",
+    "active":  true
+  },
+  {
+    "id":      "ca-01",
+    "name":    "CA-01",
+    "country": "Canada",
+    "flag":    "🇨🇦",
+    "host":    "YOUR_CA_SERVER_IP",
+    "region":  "ca",
+    "active":  true
+  },
+  {
+    "id":      "sg-01",
+    "name":    "SG-01",
+    "country": "Singapore",
+    "flag":    "🇸🇬",
+    "host":    "YOUR_SG_SERVER_IP",
+    "region":  "sg",
+    "active":  true
+  }
+]

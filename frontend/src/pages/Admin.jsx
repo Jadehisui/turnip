@@ -1,0 +1,532 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Shield, Activity, Users, Globe, Cpu, Tablet, Server, Trash2, RotateCcw, Search, ChevronRight, Check, AlertCircle } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+
+const Admin = () => {
+    const [isLoggedIn, setIsLoggedIn] = useState(false);
+    const [token, setToken] = useState('');
+    const [apiUrl, setApiUrl] = useState('http://127.0.0.1:8765');
+    const [loginError, setLoginError] = useState('');
+    const [status, setStatus] = useState(null);
+    const [users, setUsers] = useState([]);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [addUserForm, setAddUserForm] = useState({ username: '', password: '' });
+    const [addMsg, setAddMsg] = useState({ text: '', type: '' });
+    const [toast, setToast] = useState({ show: false, text: '', type: 'ok' });
+    const pollTimer = useRef(null);
+
+    const showToast = (text, type = 'ok') => {
+        setToast({ show: true, text, type });
+        setTimeout(() => setToast({ show: false, text: '', type: 'ok' }), 3500);
+    };
+
+    const apiFetch = async (path, opts = {}) => {
+        const url = `${apiUrl.replace(/\/$/, '')}${path}`;
+        try {
+            const response = await fetch(url, {
+                ...opts,
+                headers: {
+                    'X-Admin-Token': token,
+                    'Content-Type': 'application/json',
+                    ...(opts.headers || {}),
+                },
+            });
+            return response;
+        } catch (error) {
+            console.error('API Fetch Error:', error);
+            throw error;
+        }
+    };
+
+    const refresh = async () => {
+        if (!token) return;
+        try {
+            const [statusRes, usersRes] = await Promise.all([
+                apiFetch('/api/status'),
+                apiFetch('/api/users'),
+            ]);
+
+            if (!statusRes.ok || !usersRes.ok) {
+                throw new Error('Authentication failed');
+            }
+
+            const statusData = await statusRes.json();
+            const usersData = await usersRes.json();
+
+            setStatus(statusData);
+            setUsers(usersData.users || []);
+        } catch (error) {
+            console.error('Refresh Error:', error);
+            if (isLoggedIn) {
+                showToast('Polling failed: ' + error.message, 'err');
+            }
+        }
+    };
+
+    const startPolling = () => {
+        refresh();
+        pollTimer.current = setInterval(refresh, 8000);
+    };
+
+    const handleLogin = async (e) => {
+        e.preventDefault();
+        if (!token.trim()) {
+            setLoginError('Token is required');
+            return;
+        }
+        try {
+            const res = await apiFetch('/api/status');
+            if (res.ok) {
+                setIsLoggedIn(true);
+                setLoginError('');
+                startPolling();
+            } else {
+                setLoginError('Invalid token or API unreachable');
+            }
+        } catch (error) {
+            setLoginError('Could not connect to API');
+        }
+    };
+
+    const handleLogout = () => {
+        clearInterval(pollTimer.current);
+        setIsLoggedIn(false);
+        setToken('');
+        setStatus(null);
+        setUsers([]);
+    };
+
+    const handleAddUser = async (e) => {
+        e.preventDefault();
+        if (!addUserForm.username.trim()) {
+            setAddMsg({ text: 'Username required', type: 'err' });
+            return;
+        }
+
+        const password = addUserForm.password.trim() || generatePass();
+        try {
+            const res = await apiFetch('/api/users', {
+                method: 'POST',
+                body: JSON.stringify({ username: addUserForm.username, password }),
+            });
+            const data = await res.json();
+            if (res.ok) {
+                setAddMsg({ text: `✓ Added: ${addUserForm.username}`, type: 'ok' });
+                setAddUserForm({ username: '', password: '' });
+                showToast(`User added: ${addUserForm.username}`);
+                refresh();
+            } else {
+                setAddMsg({ text: `✗ ${data.error || 'Failed'}`, type: 'err' });
+            }
+        } catch (error) {
+            setAddMsg({ text: '✗ API error', type: 'err' });
+        }
+    };
+
+    const handleDeleteUser = async (username) => {
+        if (!window.confirm(`Remove VPN user: ${username}?`)) return;
+        try {
+            const res = await apiFetch(`/api/users/${encodeURIComponent(username)}`, {
+                method: 'DELETE',
+            });
+            if (res.ok) {
+                showToast(`Removed: ${username}`);
+                refresh();
+            } else {
+                showToast('Delete failed', 'err');
+            }
+        } catch (error) {
+            showToast('API error', 'err');
+        }
+    };
+
+    const handleRestartVpn = async () => {
+        if (!window.confirm('Restart StrongSwan? Active connections will drop briefly.')) return;
+        try {
+            await apiFetch('/api/vpn/restart', { method: 'POST' });
+            showToast('StrongSwan restarting...');
+            setTimeout(refresh, 4000);
+        } catch (error) {
+            showToast('Restart failed', 'err');
+        }
+    };
+
+    const generatePass = () => {
+        const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$';
+        return Array.from({ length: 18 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    };
+
+    useEffect(() => {
+        return () => clearInterval(pollTimer.current);
+    }, []);
+
+    const filteredUsers = users.filter((u) => u.username.toLowerCase().includes(searchQuery.toLowerCase()));
+
+    if (!isLoggedIn) {
+        return (
+            <div className="admin-login-overlay">
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="login-card"
+                >
+                    <div className="login-logo">
+                        Secure<span>Fast</span>
+                    </div>
+                    <div className="login-sub">
+                        Admin Panel — Enter your API token
+                    </div>
+
+                    <form onSubmit={handleLogin} className="login-form">
+                        <div className="form-group">
+                            <label>API Token</label>
+                            <input
+                                type="password"
+                                placeholder="Your ADMIN_TOKEN"
+                                value={token}
+                                onChange={(e) => setToken(e.target.value)}
+                            />
+                        </div>
+
+                        <div className="form-group">
+                            <label>API Base URL</label>
+                            <input
+                                type="text"
+                                value={apiUrl}
+                                onChange={(e) => setApiUrl(e.target.value)}
+                            />
+                        </div>
+
+                        <button type="submit" className="login-btn">
+                            Connect →
+                        </button>
+
+                        {loginError && (
+                            <div className="error-msg">
+                                {loginError}
+                            </div>
+                        )}
+                    </form>
+                </motion.div>
+
+                <style jsx>{`
+          .admin-login-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 1000;
+          }
+          .login-card {
+            background: var(--bg2); border: 1px solid var(--border);
+            border-radius: 20px; padding: 3rem; width: 100%; max-width: 420px;
+            box-shadow: 0 40px 100px rgba(0,0,0,0.5);
+          }
+          .login-logo { font-size: 24px; font-weight: 800; color: var(--text); text-align: center; margin-bottom: 0.5rem; }
+          .login-logo span { color: var(--accent); }
+          .login-sub { text-align: center; color: var(--text2); font-size: 13px; margin-bottom: 2.5rem; }
+          .login-form { display: flex; flex-direction: column; gap: 1.5rem; }
+          .form-group label { display: block; font-family: var(--mono); font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: .1em; margin-bottom: 0.5rem; }
+          .form-group input {
+            width: 100%; background: var(--bg3); border: 1px solid var(--border);
+            border-radius: 10px; padding: 12px 16px; color: var(--text);
+            font-family: var(--mono); font-size: 13px; outline: none; transition: border 0.2s;
+          }
+          .form-group input:focus { border-color: var(--accent); }
+          .login-btn {
+            background: var(--accent); color: var(--bg); border: none;
+            border-radius: 10px; padding: 14px; font-weight: 800; font-size: 15px;
+            cursor: pointer; transition: background 0.2s;
+          }
+          .login-btn:hover { background: var(--accent2); }
+          .error-msg { font-family: var(--mono); font-size: 11px; color: var(--red); text-align: center; margin-top: 1rem; }
+        `}</style>
+            </div>
+        );
+    }
+
+    const sys = status?.system || {};
+    const capacityPct = status ? Math.round((status.total_users / status.max_users) * 100) : 0;
+
+    return (
+        <div className="admin-container">
+            {/* Toast */}
+            <AnimatePresence>
+                {toast.show && (
+                    <motion.div
+                        initial={{ y: 50, opacity: 0 }}
+                        animate={{ y: 0, opacity: 1 }}
+                        exit={{ y: 50, opacity: 0 }}
+                        className={`toast ${toast.type}`}
+                    >
+                        {toast.text}
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Nav */}
+            <nav className="admin-nav">
+                <div className="nav-left">
+                    <div className="logo">Secure<span>Fast</span> <small>Admin</small></div>
+                    {status && (
+                        <div className={`status-indicator ${status.vpn_running ? 'running' : 'offline'}`}>
+                            <div className="dot" />
+                            <span>{status.vpn_running ? 'StrongSwan online' : 'VPN offline'}</span>
+                        </div>
+                    )}
+                </div>
+                <div className="nav-right">
+                    <button onClick={handleRestartVpn} className="btn-restart">Restart VPN</button>
+                    <button onClick={handleLogout} className="btn-signout">Sign out</button>
+                </div>
+            </nav>
+
+            <div className="dashboard-content">
+                {/* Capacity */}
+                <div className="capacity-card">
+                    <div className="capacity-info">
+                        <div className="metric-tag">// server capacity</div>
+                        <div className="progress-bg">
+                            <motion.div className="progress-fill" initial={{ width: 0 }} animate={{ width: `${capacityPct}%` }} style={{ background: capacityPct >= 90 ? 'var(--red)' : capacityPct >= 70 ? 'var(--amber)' : 'var(--accent)' }} />
+                        </div>
+                        <div className="capacity-stats">
+                            <span>{status ? status.max_users - status.total_users : '0'} slots available</span>
+                            <span>{capacityPct}% target load</span>
+                        </div>
+                    </div>
+                    <div className="capacity-value">
+                        <div className="val">{status?.total_users || '0'}<span>/{status?.max_users || '80'}</span></div>
+                        <div className="status-label">{capacityPct >= 90 ? 'ALMOST FULL' : capacityPct >= 70 ? 'HEAVY LOAD' : 'STABLE'}</div>
+                    </div>
+                </div>
+
+                {/* Metrics Grid */}
+                <div className="metrics-grid">
+                    <div className="metric-box">
+                        <div className="metric-tag">Conns</div>
+                        <div className="metric-val accent">{status?.active_tunnels || '0'}</div>
+                        <div className="metric-sub">Active tunnels</div>
+                    </div>
+                    <div className="metric-box">
+                        <div className="metric-tag">CPU</div>
+                        <div className="metric-val">{sys.cpu_pct || '0'}%</div>
+                        <div className="metric-sub">System load</div>
+                    </div>
+                    <div className="metric-box">
+                        <div className="metric-tag">Memory</div>
+                        <div className="metric-val">{sys.mem_pct || '0'}%</div>
+                        <div className="metric-sub">{sys.mem_used_gb || '0'} / {sys.mem_total_gb || '0'}GB</div>
+                    </div>
+                    <div className="metric-box">
+                        <div className="metric-tag">Bandwidth</div>
+                        <div className="metric-val-small">
+                            <span className="tx">↑{sys.net_tx_gb || '0'}GB</span>
+                            <span className="rx">↓{sys.net_rx_gb || '0'}GB</span>
+                        </div>
+                        <div className="metric-sub">Total I/O</div>
+                    </div>
+                </div>
+
+                <div className="main-grid">
+                    {/* User Management */}
+                    <div className="users-card">
+                        <div className="card-header">
+                            <h3>VPN Users</h3>
+                            <div className="count">{users.length} enrolled</div>
+                        </div>
+
+                        <div className="search-bar">
+                            <Search size={14} className="search-icon" />
+                            <input
+                                type="text"
+                                placeholder="Find users..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                            />
+                        </div>
+
+                        <div className="users-list custom-scrollbar">
+                            {filteredUsers.length === 0 ? (
+                                <div className="empty">No matches found</div>
+                            ) : (
+                                filteredUsers.map((u) => (
+                                    <div key={u.username} className="user-item">
+                                        <div className={`online-dot ${u.online ? 'active' : ''}`} />
+                                        <div className="user-name">{u.username}</div>
+                                        <div className={`user-status ${u.online ? 'active' : ''}`}>{u.online ? 'ONLINE' : 'OFFLINE'}</div>
+                                        <button onClick={() => handleDeleteUser(u.username)} className="btn-delete"><Trash2 size={13} /></button>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+
+                        <form onSubmit={handleAddUser} className="add-user-field">
+                            <input type="text" placeholder="User" value={addUserForm.username} onChange={(e) => setAddUserForm({ ...addUserForm, username: e.target.value })} />
+                            <input type="password" placeholder="Pass" value={addUserForm.password} onChange={(e) => setAddUserForm({ ...addUserForm, password: e.target.value })} />
+                            <button type="submit">Add User</button>
+                        </form>
+                        {addMsg.text && <div className={`form-msg ${addMsg.type}`}>{addMsg.text}</div>}
+                    </div>
+
+                    <div className="sidebar-grid">
+                        {/* Tunnels */}
+                        <div className="card tunnels-card">
+                            <div className="card-header">
+                                <h3>Live Handshakes</h3>
+                                <div className="badge">{status?.tunnels?.length || 0} active</div>
+                            </div>
+                            <div className="tunnel-list">
+                                {status?.tunnels?.length > 0 ? (
+                                    status.tunnels.map((t) => (
+                                        <div key={t.id} className="tunnel-item">
+                                            <span className="tid">#{t.id}</span>
+                                            <span className="tname">{t.identity}</span>
+                                            <span className="tsince">{t.since}</span>
+                                        </div>
+                                    ))
+                                ) : <div className="empty">No handshakes</div>}
+                            </div>
+                        </div>
+
+                        {/* SysInfo */}
+                        <div className="card resources-card">
+                            <div className="card-header">
+                                <h3>System</h3>
+                                <div className="uptime">up {status ? `${Math.floor(sys.uptime_sec / 3600)}h` : '--'}</div>
+                            </div>
+                            <div className="resource-bars">
+                                {[
+                                    { label: 'CPU', val: sys.cpu_pct, color: 'var(--accent)' },
+                                    { label: 'MEM', val: sys.mem_pct, color: 'var(--blue)' },
+                                    { label: 'DSK', val: sys.disk_pct, color: 'var(--amber)' }
+                                ].map(r => (
+                                    <div className="res-row" key={r.label}>
+                                        <div className="res-lbl"><span>{r.label}</span> <span>{r.val || 0}%</span></div>
+                                        <div className="res-bg"><motion.div className="res-fill" initial={{ width: 0 }} animate={{ width: `${r.val || 0}%` }} style={{ background: r.color }} /></div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <style jsx>{`
+        .admin-container { background: var(--bg); min-height: 100vh; color: var(--text); padding-bottom: 4rem; }
+        .admin-nav {
+          background: var(--bg2); border-bottom: 1px solid var(--border);
+          padding: 1.25rem 2rem; display: flex; align-items: center; justify-content: space-between;
+          position: sticky; top: 0; z-index: 100;
+        }
+        .nav-left { display: flex; align-items: center; gap: 2rem; }
+        .logo { font-size: 18px; font-weight: 800; }
+        .logo span { color: var(--accent); }
+        .logo small { font-size: 11px; font-weight: 400; color: var(--text3); margin-left: 6px; }
+        .status-indicator { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-size: 10px; }
+        .status-indicator .dot { width: 6px; height: 6px; border-radius: 50%; }
+        .status-indicator.running .dot { background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+        .status-indicator.offline .dot { background: var(--red); }
+        .status-indicator.running span { color: var(--accent); }
+        .status-indicator.offline span { color: var(--red); }
+
+        .nav-right { display: flex; gap: 12px; }
+        .btn-restart { 
+          background: rgba(244, 63, 94, 0.08); border: 1px solid rgba(244, 63, 94, 0.2); 
+          color: var(--red); padding: 8px 16px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer;
+        }
+        .btn-signout {
+          background: var(--adim); border: 1px solid var(--border);
+          color: var(--text); padding: 8px 16px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer;
+        }
+
+        .dashboard-content { max-width: 1100px; margin: 0 auto; padding: 2rem; }
+        .capacity-card {
+          background: var(--bg2); border: 1px solid var(--border); border-radius: 16px;
+          padding: 2.5rem; display: flex; align-items: center; gap: 4rem; margin-bottom: 1.5rem;
+        }
+        .capacity-info { flex: 1; }
+        .metric-tag { font-family: var(--mono); font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: .1em; margin-bottom: 1rem; }
+        .progress-bg { height: 6px; background: var(--bg3); border-radius: 100px; overflow: hidden; margin-bottom: 0.75rem; }
+        .progress-fill { height: 100%; border-radius: 100px; }
+        .capacity-stats { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 11px; color: var(--text2); }
+        .capacity-value { text-align: right; }
+        .capacity-value .val { font-size: 42px; font-weight: 800; font-family: var(--mono); line-height: 1; }
+        .capacity-value .val span { font-size: 18px; color: var(--text3); font-weight: 400; }
+        .status-label { font-family: var(--mono); font-size: 10px; margin-top: 8px; font-weight: 700; }
+
+        .metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
+        .metric-box { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; }
+        .metric-val { font-size: 24px; font-weight: 800; font-family: var(--mono); margin: 0.5rem 0; }
+        .metric-val.accent { color: var(--accent); }
+        .metric-val-small { display: flex; flex-direction: column; gap: 4px; font-family: var(--mono); font-size: 14px; font-weight: 700; margin: 0.5rem 0; }
+        .tx { color: var(--accent); } .rx { color: var(--blue); }
+        .metric-sub { font-size: 11px; color: var(--text3); font-weight: 600; }
+
+        .main-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; }
+        .card { background: var(--bg2); border: 1px solid var(--border); border-radius: 16px; padding: 1.5rem; }
+        .users-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 16px; padding: 1.5rem; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+        .card-header h3 { font-size: 16px; font-weight: 700; }
+        .card-header .count, .card-header .uptime, .card-header .badge { font-family: var(--mono); font-size: 10px; color: var(--text2); padding: 4px 8px; background: var(--bg3); border-radius: 4px; }
+
+        .search-bar { position: relative; margin-bottom: 1rem; }
+        .search-icon { position: absolute; left: 12px; top: 12px; color: var(--text3); }
+        .search-bar input {
+          width: 100%; background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+          padding: 10px 14px 10px 36px; color: var(--text); font-family: var(--mono); font-size: 12px; outline: none;
+        }
+        .users-list { height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+        .user-item { 
+          display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+          border-radius: 8px; transition: background 0.2s;
+        }
+        .user-item:hover { background: var(--bg3); }
+        .online-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text3); }
+        .online-dot.active { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+        .user-name { flex: 1; font-family: var(--mono); font-size: 13px; }
+        .user-status { font-family: var(--mono); font-size: 9px; font-weight: 700; color: var(--text3); padding: 2px 6px; border: 1px solid var(--border); border-radius: 4px; }
+        .user-status.active { color: var(--accent); border-color: var(--adim); background: var(--adim); }
+        .btn-delete { color: var(--text3); cursor: pointer; background: none; border: none; opacity: 0; transition: opacity 0.2s; }
+        .user-item:hover .btn-delete { opacity: 1; }
+        .user-item:hover .btn-delete:hover { color: var(--red); }
+
+        .add-user-field { display: flex; gap: 8px; margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border); }
+        .add-user-field input { 
+          flex: 1; background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
+          padding: 8px 12px; color: var(--text); font-family: var(--mono); font-size: 11px; outline: none;
+        }
+        .add-user-field button {
+          background: var(--accent); color: var(--bg); border: none; border-radius: 6px;
+          padding: 0 16px; font-weight: 800; font-size: 11px; cursor: pointer;
+        }
+        .form-msg { font-family: var(--mono); font-size: 10px; margin-top: 8px; }
+        .form-msg.ok { color: var(--accent); } .form-msg.err { color: var(--red); }
+
+        .sidebar-grid { display: flex; flex-direction: column; gap: 1.5rem; }
+        .tunnel-list { display: flex; flex-direction: column; gap: 8px; }
+        .tunnel-item { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 11px; padding-bottom: 8px; border-bottom: 1px solid var(--adim); }
+        .tid { color: var(--accent); opacity: 0.6; }
+        .tname { font-weight: 700; }
+        .tsince { color: var(--text3); font-size: 10px; }
+
+        .resource-bars { display: flex; flex-direction: column; gap: 1.25rem; }
+        .res-lbl { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 10px; font-weight: 700; color: var(--text2); margin-bottom: 6px; }
+        .res-bg { height: 4px; background: var(--bg3); border-radius: 10px; overflow: hidden; }
+        .res-fill { height: 100%; border-radius: 10px; }
+
+        .toast {
+          position: fixed; bottom: 2rem; right: 2rem; z-index: 1000;
+          background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+          padding: 12px 24px; font-family: var(--mono); font-size: 12px; font-weight: 700;
+          box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+        }
+        .toast.ok { color: var(--accent); border-color: var(--adim); }
+        .toast.err { color: var(--red); border-color: rgba(244, 63, 94, 0.2); }
+
+        .empty { text-align: center; color: var(--text3); font-family: var(--mono); font-size: 11px; padding: 2rem 0; }
+        .custom-scrollbar::-webkit-scrollbar { width: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: var(--surf); border-radius: 10px; }
+      `}</style>
+        </div>
+    );
+};
+
+export default Admin;
