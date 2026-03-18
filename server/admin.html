@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Turnip VPN — Admin</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:      #050810;
+  --bg2:     #0a0e1a;
+  --bg3:     #0f1525;
+  --surf:    #141c2e;
+  --surf2:   #1a2540;
+  --border:  rgba(0,200,150,0.13);
+  --border2: rgba(0,200,150,0.28);
+  --accent:  #00c896;
+  --accent2: #00e6aa;
+  --adim:    rgba(0,200,150,0.08);
+  --text:    #e8f0fe;
+  --text2:   #8899b4;
+  --text3:   #4a5568;
+  --red:     #ff4757;
+  --amber:   #ffb830;
+  --blue:    #4fa3e0;
+  --mono:    'Space Mono', monospace;
+  --sans:    'Syne', sans-serif;
+}
+
+body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; }
+
+/* NAV */
+.nav { display: flex; align-items: center; justify-content: space-between; padding: 1rem 2rem; border-bottom: 1px solid var(--border); background: var(--bg2); position: sticky; top: 0; z-index: 50; }
+.logo { font-size: 16px; font-weight: 800; letter-spacing: -0.3px; }
+.logo span { color: var(--accent); }
+.nav-right { display: flex; align-items: center; gap: 1rem; }
+.vpn-status { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 11px; }
+.status-dot { width: 7px; height: 7px; border-radius: 50%; }
+.dot-green { background: var(--accent); animation: pulse 2s infinite; }
+.dot-red   { background: var(--red); }
+.dot-gray  { background: var(--text3); }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+.btn { padding: 7px 16px; border-radius: 6px; font-family: var(--sans); font-size: 12px; font-weight: 700; cursor: pointer; transition: all .2s; border: 1px solid var(--border2); background: transparent; color: var(--text); }
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn-danger { border-color: rgba(255,71,87,.3); color: var(--red); }
+.btn-danger:hover { border-color: var(--red); background: rgba(255,71,87,.08); }
+.btn-accent { background: var(--accent); border-color: var(--accent); color: #050810; }
+.btn-accent:hover { background: var(--accent2); }
+
+/* LOGIN */
+#loginScreen { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 100; }
+.login-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 14px; padding: 2.5rem; width: 360px; }
+.login-logo { font-size: 22px; font-weight: 800; text-align: center; margin-bottom: .5rem; }
+.login-logo span { color: var(--accent); }
+.login-sub { text-align: center; color: var(--text2); font-size: 13px; margin-bottom: 2rem; }
+.form-label { font-size: 11px; font-weight: 700; color: var(--text2); letter-spacing: .08em; text-transform: uppercase; margin-bottom: 6px; display: block; }
+.form-input { width: 100%; background: var(--bg3); border: 1px solid var(--border); border-radius: 7px; padding: 10px 14px; color: var(--text); font-family: var(--mono); font-size: 13px; margin-bottom: 14px; outline: none; transition: border-color .2s; }
+.form-input:focus { border-color: var(--accent); }
+.login-btn { width: 100%; padding: 11px; background: var(--accent); border: none; border-radius: 7px; color: #050810; font-family: var(--sans); font-size: 14px; font-weight: 700; cursor: pointer; transition: background .2s; }
+.login-btn:hover { background: var(--accent2); }
+.login-error { color: var(--red); font-size: 12px; text-align: center; margin-top: 10px; display: none; font-family: var(--mono); }
+
+/* LAYOUT */
+.app { display: none; }
+.app.visible { display: block; }
+.content { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+
+/* CAPACITY BAR */
+.capacity-section { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem 2rem; margin-bottom: 1.5rem; display: grid; grid-template-columns: 1fr auto; gap: 1.5rem; align-items: center; }
+.cap-label { font-size: 12px; color: var(--text2); font-weight: 700; letter-spacing: .07em; text-transform: uppercase; margin-bottom: 10px; }
+.cap-bar-track { height: 10px; background: var(--bg3); border-radius: 5px; overflow: hidden; margin-bottom: 8px; }
+.cap-bar-fill { height: 100%; border-radius: 5px; transition: width .6s ease, background .4s; }
+.cap-numbers { font-family: var(--mono); font-size: 12px; color: var(--text2); display: flex; justify-content: space-between; }
+.cap-big { text-align: right; }
+.cap-count { font-size: 40px; font-weight: 800; font-family: var(--mono); color: var(--text); letter-spacing: -2px; line-height: 1; }
+.cap-count span { font-size: 18px; color: var(--text2); font-weight: 400; }
+.cap-slots { font-size: 12px; color: var(--text2); margin-top: 4px; font-family: var(--mono); }
+.cap-slots.warn { color: var(--amber); }
+.cap-slots.danger { color: var(--red); }
+
+/* METRICS ROW */
+.metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 1.5rem; }
+.metric { background: var(--surf); border: 1px solid var(--border); border-radius: 10px; padding: 1.1rem 1.25rem; }
+.metric-lbl { font-size: 10px; color: var(--text3); font-weight: 700; letter-spacing: .07em; text-transform: uppercase; margin-bottom: 8px; }
+.metric-val { font-size: 24px; font-weight: 800; font-family: var(--mono); letter-spacing: -1px; }
+.metric-sub { font-size: 11px; color: var(--text2); margin-top: 3px; }
+
+/* GRID */
+.grid2 { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; margin-bottom: 16px; }
+.card { background: var(--surf); border: 1px solid var(--border); border-radius: 10px; padding: 1.4rem; }
+.card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; }
+.card-title { font-size: 13px; font-weight: 700; color: var(--text); }
+.card-count { font-family: var(--mono); font-size: 11px; color: var(--text2); }
+
+/* USER TABLE */
+.user-search { width: 100%; background: var(--bg3); border: 1px solid var(--border); border-radius: 7px; padding: 8px 12px; color: var(--text); font-family: var(--mono); font-size: 12px; margin-bottom: 12px; outline: none; }
+.user-search:focus { border-color: var(--accent); }
+.user-list { max-height: 340px; overflow-y: auto; }
+.user-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.user-row:last-child { border-bottom: none; }
+.user-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.u-online { background: var(--accent); }
+.u-offline { background: var(--text3); }
+.user-name { flex: 1; font-family: var(--mono); font-size: 12px; color: var(--text); }
+.user-badge { font-size: 9px; font-family: var(--mono); font-weight: 700; padding: 2px 7px; border-radius: 3px; }
+.badge-on { background: rgba(0,200,150,.1); color: var(--accent); border: 1px solid var(--border2); }
+.badge-off { background: var(--bg3); color: var(--text3); border: 1px solid var(--border); }
+.del-btn { background: transparent; border: 1px solid rgba(255,71,87,.2); color: var(--red); font-size: 10px; font-family: var(--mono); padding: 3px 8px; border-radius: 4px; cursor: pointer; transition: all .2s; }
+.del-btn:hover { background: rgba(255,71,87,.1); }
+.user-row:hover { background: var(--bg3); margin: 0 -8px; padding-left: 8px; padding-right: 8px; border-radius: 6px; }
+
+/* ADD USER FORM */
+.add-form { display: flex; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); flex-wrap: wrap; }
+.add-input { flex: 1; min-width: 100px; background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; color: var(--text); font-family: var(--mono); font-size: 12px; outline: none; }
+.add-input:focus { border-color: var(--accent); }
+.add-btn { background: var(--accent); border: none; border-radius: 6px; color: #050810; font-family: var(--sans); font-size: 12px; font-weight: 700; padding: 8px 16px; cursor: pointer; white-space: nowrap; }
+.add-btn:hover { background: var(--accent2); }
+.add-msg { width: 100%; font-family: var(--mono); font-size: 11px; display: none; margin-top: 4px; }
+.msg-ok  { color: var(--accent); }
+.msg-err { color: var(--red); }
+
+/* MINI CHART */
+.mini-chart { display: flex; align-items: flex-end; gap: 5px; height: 80px; margin-bottom: 8px; }
+.mini-bar { flex: 1; border-radius: 2px 2px 0 0; transition: opacity .2s; }
+.mini-bar:hover { opacity: 1 !important; }
+
+/* TUNNEL LIST */
+.tunnel-item { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+.tunnel-item:last-child { border-bottom: none; }
+.tunnel-id { font-family: var(--mono); color: var(--accent); font-size: 11px; min-width: 30px; }
+.tunnel-name { flex: 1; font-family: var(--mono); color: var(--text); }
+.tunnel-since { font-family: var(--mono); font-size: 10px; color: var(--text3); }
+
+/* SYSTEM BARS */
+.sys-item { margin-bottom: 1rem; }
+.sys-row { display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 12px; }
+.sys-name { color: var(--text2); font-weight: 600; }
+.sys-val  { font-family: var(--mono); font-size: 11px; color: var(--text); }
+.sys-track { height: 5px; background: var(--bg3); border-radius: 3px; overflow: hidden; }
+.sys-fill  { height: 100%; border-radius: 3px; transition: width .6s; }
+
+/* LOG */
+.log-box { background: var(--bg3); border-radius: 7px; padding: 10px 12px; height: 160px; overflow-y: auto; font-family: var(--mono); font-size: 11px; }
+.log-line { padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,.03); color: var(--text2); line-height: 1.6; }
+.log-time { color: var(--text3); margin-right: 8px; }
+.log-ok   { color: var(--accent); }
+.log-warn { color: var(--amber); }
+.log-err  { color: var(--red); }
+
+/* TOAST */
+.toast { position: fixed; bottom: 2rem; right: 2rem; background: var(--surf2); border: 1px solid var(--border2); border-radius: 8px; padding: 12px 18px; font-size: 13px; font-family: var(--mono); z-index: 200; transform: translateY(100px); opacity: 0; transition: all .3s; }
+.toast.show { transform: translateY(0); opacity: 1; }
+.toast.ok   { border-color: var(--accent); color: var(--accent); }
+.toast.err  { border-color: var(--red); color: var(--red); }
+
+/* SCROLLBAR */
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--surf2); border-radius: 2px; }
+
+/* FULL-WIDTH CARD */
+.full-card { background: var(--surf); border: 1px solid var(--border); border-radius: 10px; padding: 1.4rem; margin-bottom: 16px; }
+
+/* UPTIME BADGE */
+.uptime-badge { display: inline-block; background: var(--adim); border: 1px solid var(--border2); color: var(--accent); font-family: var(--mono); font-size: 10px; padding: 3px 10px; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="loginScreen">
+  <div class="login-card">
+    <div class="login-logo">Secure<span>Fast</span></div>
+    <div class="login-sub">Admin Panel — Enter your API token</div>
+    <label class="form-label">API Token</label>
+    <input type="password" class="form-input" id="tokenInput" placeholder="Your ADMIN_TOKEN" />
+    <label class="form-label">API Base URL</label>
+    <input type="text" class="form-input" id="apiUrl" value="http://127.0.0.1:8765" />
+    <button class="login-btn" onclick="doLogin()">Connect →</button>
+    <div class="login-error" id="loginErr">Invalid token or API unreachable</div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<!-- APP -->
+<div class="app" id="app">
+  <nav class="nav">
+    <div class="logo">Secure<span>Fast</span> <span style="color:var(--text3);font-size:12px;font-weight:400;margin-left:4px">Admin</span></div>
+    <div class="nav-right">
+      <div class="vpn-status">
+        <div class="status-dot dot-gray" id="vpnDot"></div>
+        <span id="vpnStatusTxt" style="color:var(--text2)">Checking...</span>
+      </div>
+      <button class="btn btn-danger" onclick="restartVpn()">Restart VPN</button>
+      <button class="btn" onclick="logout()">Sign out</button>
+    </div>
+  </nav>
+
+  <div class="content">
+
+    <!-- CAPACITY BAR -->
+    <div class="capacity-section">
+      <div>
+        <div class="cap-label">Server capacity</div>
+        <div class="cap-bar-track"><div class="cap-bar-fill" id="capFill" style="width:0%"></div></div>
+        <div class="cap-numbers">
+          <span id="capLeft">– slots remaining</span>
+          <span id="capPct">0%</span>
+        </div>
+      </div>
+      <div class="cap-big">
+        <div class="cap-count" id="capCount">–<span>/80</span></div>
+        <div class="cap-slots" id="capSlots">Loading...</div>
+      </div>
+    </div>
+
+    <!-- METRICS -->
+    <div class="metrics">
+      <div class="metric">
+        <div class="metric-lbl">Active tunnels</div>
+        <div class="metric-val" id="mTunnels" style="color:var(--accent)">–</div>
+        <div class="metric-sub">connected right now</div>
+      </div>
+      <div class="metric">
+        <div class="metric-lbl">CPU</div>
+        <div class="metric-val" id="mCpu">–</div>
+        <div class="metric-sub" id="mCpuSub">–</div>
+      </div>
+      <div class="metric">
+        <div class="metric-lbl">Memory</div>
+        <div class="metric-val" id="mMem">–</div>
+        <div class="metric-sub" id="mMemSub">–</div>
+      </div>
+      <div class="metric">
+        <div class="metric-lbl">Network I/O</div>
+        <div class="metric-val" id="mNet" style="font-size:16px;padding-top:4px">–</div>
+        <div class="metric-sub" id="mNetSub">–</div>
+      </div>
+    </div>
+
+    <!-- MAIN GRID -->
+    <div class="grid2">
+
+      <!-- USER MANAGEMENT -->
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">VPN Users</div>
+          <div class="card-count" id="userCount">– / 80 users</div>
+        </div>
+        <input type="text" class="user-search" id="userSearch" placeholder="Search users..." oninput="filterUsers()" />
+        <div class="user-list" id="userList"><div style="color:var(--text3);font-size:12px;font-family:var(--mono);padding:1rem 0">Loading users...</div></div>
+        <div class="add-form">
+          <input type="text"     class="add-input" id="addUser" placeholder="username" />
+          <input type="password" class="add-input" id="addPass" placeholder="password (or leave blank)" />
+          <button class="add-btn" onclick="addUser()">+ Add User</button>
+          <div class="add-msg" id="addMsg"></div>
+        </div>
+      </div>
+
+      <!-- RIGHT COLUMN -->
+      <div>
+        <!-- Active Tunnels -->
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-head">
+            <div class="card-title">Active Tunnels</div>
+            <div class="card-count" id="tunnelCount">–</div>
+          </div>
+          <div id="tunnelList"><div style="color:var(--text3);font-size:12px;font-family:var(--mono)">No active tunnels</div></div>
+        </div>
+
+        <!-- System Resources -->
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">System Resources</div>
+            <div class="uptime-badge" id="uptimeBadge">–</div>
+          </div>
+          <div class="sys-item">
+            <div class="sys-row"><span class="sys-name">CPU</span><span class="sys-val" id="sCpu">–</span></div>
+            <div class="sys-track"><div class="sys-fill" id="sCpuBar" style="width:0%;background:var(--accent)"></div></div>
+          </div>
+          <div class="sys-item">
+            <div class="sys-row"><span class="sys-name">Memory</span><span class="sys-val" id="sMem">–</span></div>
+            <div class="sys-track"><div class="sys-fill" id="sMemBar" style="width:0%;background:var(--blue)"></div></div>
+          </div>
+          <div class="sys-item">
+            <div class="sys-row"><span class="sys-name">Disk</span><span class="sys-val" id="sDisk">–</span></div>
+            <div class="sys-track"><div class="sys-fill" id="sDiskBar" style="width:0%;background:var(--amber)"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ACTIVITY LOG -->
+    <div class="full-card">
+      <div class="card-head">
+        <div class="card-title">Live Activity Log</div>
+        <button class="btn" style="font-size:11px;padding:5px 12px" onclick="clearLog()">Clear</button>
+      </div>
+      <div class="log-box" id="logBox">
+        <div class="log-line"><span class="log-time">--:--:--</span>Waiting for data...</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+let API = "http://127.0.0.1:8765";
+let TOKEN = "";
+let allUsers = [];
+let pollTimer = null;
+const MAX = 80;
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+async function doLogin() {
+  TOKEN = document.getElementById("tokenInput").value.trim();
+  API   = document.getElementById("apiUrl").value.trim().replace(/\/$/, "");
+  try {
+    const r = await apiFetch("/api/status");
+    if (r.ok) {
+      document.getElementById("loginScreen").style.display = "none";
+      document.getElementById("app").classList.add("visible");
+      startPolling();
+    } else {
+      showLoginErr();
+    }
+  } catch(e) { showLoginErr(); }
+}
+function showLoginErr() { document.getElementById("loginErr").style.display = "block"; }
+function logout() { clearInterval(pollTimer); location.reload(); }
+document.getElementById("tokenInput").addEventListener("keydown", e => { if(e.key==="Enter") doLogin(); });
+
+// ── API ───────────────────────────────────────────────────────────────────────
+async function apiFetch(path, opts={}) {
+  return fetch(API + path, {
+    ...opts,
+    headers: { "X-Admin-Token": TOKEN, "Content-Type": "application/json", ...(opts.headers||{}) }
+  });
+}
+
+// ── Poll ──────────────────────────────────────────────────────────────────────
+function startPolling() {
+  refresh();
+  pollTimer = setInterval(refresh, 8000);
+}
+
+async function refresh() {
+  try {
+    const [statusR, usersR] = await Promise.all([
+      apiFetch("/api/status"),
+      apiFetch("/api/users")
+    ]);
+    const status = await statusR.json();
+    const users  = await usersR.json();
+    renderAll(status, users);
+  } catch(e) {
+    log("API poll failed: " + e.message, "err");
+  }
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function renderAll(s, u) {
+  const maxU = s.max_users || MAX;
+  const total = s.total_users || 0;
+  const pct   = Math.round(total / maxU * 100);
+  const slots = maxU - total;
+
+  // VPN status
+  const vpnOk = s.vpn_running;
+  document.getElementById("vpnDot").className = "status-dot " + (vpnOk ? "dot-green" : "dot-red");
+  document.getElementById("vpnStatusTxt").textContent = vpnOk ? "StrongSwan running" : "VPN offline";
+  document.getElementById("vpnStatusTxt").style.color = vpnOk ? "var(--accent)" : "var(--red)";
+
+  // Capacity bar
+  const barColor = pct >= 90 ? "var(--red)" : pct >= 70 ? "var(--amber)" : "var(--accent)";
+  document.getElementById("capFill").style.width   = pct + "%";
+  document.getElementById("capFill").style.background = barColor;
+  document.getElementById("capPct").textContent   = pct + "%";
+  document.getElementById("capCount").innerHTML   = `${total}<span>/${maxU}</span>`;
+  document.getElementById("capLeft").textContent  = `${slots} slot${slots!==1?"s":""} remaining`;
+  const slotEl = document.getElementById("capSlots");
+  slotEl.textContent = pct >= 90 ? "⚠ Almost full" : pct >= 70 ? "Filling up" : "Healthy";
+  slotEl.className = "cap-slots" + (pct>=90?" danger":pct>=70?" warn":"");
+
+  // Metrics
+  const sys = s.system || {};
+  document.getElementById("mTunnels").textContent = s.active_tunnels ?? "–";
+  document.getElementById("mCpu").textContent     = (sys.cpu_pct ?? "–") + "%";
+  document.getElementById("mCpuSub").textContent  = sys.cpu_pct >= 80 ? "High load" : "Normal";
+  document.getElementById("mMem").textContent     = (sys.mem_pct ?? "–") + "%";
+  document.getElementById("mMemSub").textContent  = `${sys.mem_used_gb ?? "–"}GB / ${sys.mem_total_gb ?? "–"}GB`;
+  document.getElementById("mNet").innerHTML       = `↑${sys.net_tx_gb ?? "–"}GB<br>↓${sys.net_rx_gb ?? "–"}GB`;
+  document.getElementById("mNetSub").textContent  = "total transferred";
+
+  // System bars
+  document.getElementById("sCpu").textContent     = (sys.cpu_pct ?? "–") + "%";
+  document.getElementById("sCpuBar").style.width  = (sys.cpu_pct || 0) + "%";
+  document.getElementById("sMem").textContent     = `${sys.mem_used_gb}GB / ${sys.mem_total_gb}GB`;
+  document.getElementById("sMemBar").style.width  = (sys.mem_pct || 0) + "%";
+  document.getElementById("sDisk").textContent    = `${sys.disk_used_gb}GB / ${sys.disk_total_gb}GB`;
+  document.getElementById("sDiskBar").style.width = (sys.disk_pct || 0) + "%";
+
+  // Uptime
+  const up = sys.uptime_sec || 0;
+  const d  = Math.floor(up/86400), h = Math.floor((up%86400)/3600), m = Math.floor((up%3600)/60);
+  document.getElementById("uptimeBadge").textContent = `up ${d}d ${h}h ${m}m`;
+
+  // Tunnels
+  const tunnels = s.tunnels || [];
+  document.getElementById("tunnelCount").textContent = tunnels.length + " active";
+  document.getElementById("tunnelList").innerHTML = tunnels.length === 0
+    ? `<div style="color:var(--text3);font-size:12px;font-family:var(--mono)">No active tunnels</div>`
+    : tunnels.map(t => `
+        <div class="tunnel-item">
+          <div class="tunnel-id">#${t.id}</div>
+          <div class="tunnel-name">${esc(t.identity)}</div>
+          <div class="tunnel-since">${esc(t.since)}</div>
+        </div>`).join("");
+
+  // Users
+  allUsers = u.users || [];
+  document.getElementById("userCount").textContent = `${u.total} / ${u.max} users`;
+  renderUsers(allUsers);
+  log(`Refreshed — ${total} users, ${s.active_tunnels} tunnels, CPU ${sys.cpu_pct}%`, "ok");
+}
+
+function renderUsers(list) {
+  const search = document.getElementById("userSearch").value.toLowerCase();
+  const filtered = list.filter(u => u.username.toLowerCase().includes(search));
+  document.getElementById("userList").innerHTML = filtered.length === 0
+    ? `<div style="color:var(--text3);font-size:12px;font-family:var(--mono);padding:1rem 0">No users found</div>`
+    : filtered.map(u => `
+        <div class="user-row">
+          <div class="user-dot ${u.online ? "u-online" : "u-offline"}"></div>
+          <div class="user-name">${esc(u.username)}</div>
+          <div class="user-badge ${u.online ? "badge-on" : "badge-off"}">${u.online ? "ONLINE" : "offline"}</div>
+          <button class="del-btn" onclick="deleteUser('${esc(u.username)}')">✕ Remove</button>
+        </div>`).join("");
+}
+
+function filterUsers() { renderUsers(allUsers); }
+
+// ── User actions ──────────────────────────────────────────────────────────────
+async function addUser() {
+  const username = document.getElementById("addUser").value.trim();
+  const password = document.getElementById("addPass").value.trim() || generatePass();
+  const msgEl = document.getElementById("addMsg");
+  msgEl.style.display = "none";
+
+  if (!username) { showMsg("Enter a username", "err"); return; }
+
+  try {
+    const r = await apiFetch("/api/users", {
+      method: "POST",
+      body: JSON.stringify({ username, password })
+    });
+    const data = await r.json();
+    if (r.ok) {
+      showMsg(`✓ Added: ${username} — password: ${password}`, "ok");
+      document.getElementById("addUser").value = "";
+      document.getElementById("addPass").value = "";
+      toast("User added: " + username, "ok");
+      await refresh();
+    } else {
+      showMsg("✗ " + (data.error || "Failed"), "err");
+    }
+  } catch(e) { showMsg("✗ API error", "err"); }
+}
+
+async function deleteUser(username) {
+  if (!confirm(`Remove VPN user: ${username}?`)) return;
+  try {
+    const r = await apiFetch("/api/users/" + encodeURIComponent(username), { method: "DELETE" });
+    if (r.ok) { toast("Removed: " + username, "ok"); await refresh(); }
+    else { const d = await r.json(); toast(d.error || "Delete failed", "err"); }
+  } catch(e) { toast("API error", "err"); }
+}
+
+async function restartVpn() {
+  if (!confirm("Restart StrongSwan? Active connections will drop briefly.")) return;
+  try {
+    await apiFetch("/api/vpn/restart", { method: "POST" });
+    toast("StrongSwan restarting...", "ok");
+    log("VPN daemon restart requested", "warn");
+    setTimeout(refresh, 4000);
+  } catch(e) { toast("Restart failed", "err"); }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function showMsg(msg, type) {
+  const el = document.getElementById("addMsg");
+  el.textContent = msg;
+  el.className = "add-msg " + (type === "ok" ? "msg-ok" : "msg-err");
+  el.style.display = "block";
+  setTimeout(() => el.style.display = "none", 6000);
+}
+
+function generatePass() {
+  const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$";
+  return Array.from({length: 18}, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+}
+
+function esc(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+let logLines = [];
+function log(msg, type="") {
+  const now = new Date();
+  const t = now.toTimeString().slice(0,8);
+  logLines.unshift({ t, msg, type });
+  if (logLines.length > 50) logLines.pop();
+  document.getElementById("logBox").innerHTML = logLines.map(l =>
+    `<div class="log-line"><span class="log-time">${l.t}</span><span class="${l.type==="ok"?"log-ok":l.type==="err"?"log-err":l.type==="warn"?"log-warn":""}">${esc(l.msg)}</span></div>`
+  ).join("");
+}
+function clearLog() { logLines = []; document.getElementById("logBox").innerHTML = ""; }
+
+let toastTimer;
+function toast(msg, type="ok") {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.className = "toast show " + type;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 3500);
+}
+</script>
+</body>
+</html>

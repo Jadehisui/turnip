@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Turnip VPN — Military-grade IKEv2/IPsec encryption. Zero logs. Instant setup on any device.">
+<title>Turnip VPN — Encrypted. Private. Fast.</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#050810;--bg2:#0a0e1a;--bg3:#0f1525;
+  --surf:#141c2e;--surf2:#1a2540;
+  --border:rgba(0,200,150,0.13);--border2:rgba(0,200,150,0.28);
+  --accent:#00c896;--accent2:#00e6aa;--adim:rgba(0,200,150,0.08);
+  --text:#e8f0fe;--text2:#8899b4;--text3:#4a5568;
+  --red:#ff4757;--amber:#ffb830;
+  --mono:'Space Mono',monospace;--sans:'Syne',sans-serif;
+}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.6;overflow-x:hidden}
+a{color:inherit;text-decoration:none}
+img{display:block}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--surf2);border-radius:2px}
+
+/* ── Utility ── */
+.mono{font-family:var(--mono)}
+.container{max-width:1100px;margin:0 auto;padding:0 2rem}
+.section{padding:6rem 0}
+
+/* ── Buttons ── */
+.btn{display:inline-flex;align-items:center;gap:8px;padding:13px 28px;border-radius:8px;font-family:var(--sans);font-size:14px;font-weight:700;cursor:pointer;transition:all .2s;border:none;text-decoration:none}
+.btn-primary{background:var(--accent);color:#050810}
+.btn-primary:hover{background:var(--accent2);transform:translateY(-1px)}
+.btn-outline{background:transparent;border:1px solid var(--border2);color:var(--text)}
+.btn-outline:hover{border-color:var(--accent);color:var(--accent)}
+.btn-lg{padding:16px 36px;font-size:15px;border-radius:10px}
+
+/* ── NAV ── */
+.nav{position:fixed;top:0;left:0;right:0;z-index:100;padding:1.1rem 0;border-bottom:1px solid transparent;transition:all .3s}
+.nav.scrolled{background:rgba(5,8,16,.96);border-color:var(--border);backdrop-filter:blur(8px)}
+.nav-inner{display:flex;align-items:center;justify-content:space-between}
+.logo{font-size:18px;font-weight:800;letter-spacing:-.5px}
+.logo span{color:var(--accent)}
+.nav-links{display:flex;gap:2rem}
+.nav-links a{font-size:13px;font-weight:600;color:var(--text2);transition:color .2s}
+.nav-links a:hover{color:var(--text)}
+.nav-ctas{display:flex;gap:10px;align-items:center}
+.btn-nav{padding:8px 18px;font-size:13px;border-radius:7px}
+.hamburger{display:none;flex-direction:column;gap:5px;cursor:pointer;padding:4px}
+.hamburger span{width:22px;height:2px;background:var(--text);border-radius:1px;transition:all .3s}
+
+/* ── HERO ── */
+.hero{padding:11rem 0 6rem;position:relative;overflow:hidden}
+.hero-grid{display:grid;grid-template-columns:1fr 1fr;gap:4rem;align-items:center}
+.hero-badge{display:inline-flex;align-items:center;gap:8px;background:var(--adim);border:1px solid var(--border2);color:var(--accent);font-family:var(--mono);font-size:11px;padding:6px 14px;border-radius:100px;margin-bottom:1.5rem;letter-spacing:.06em}
+.pulse{width:6px;height:6px;border-radius:50%;background:var(--accent);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.8)}}
+.hero h1{font-size:clamp(38px,5vw,64px);font-weight:800;line-height:1.05;letter-spacing:-2px;margin-bottom:1.25rem}
+.hero h1 em{font-style:normal;color:var(--accent)}
+.hero p{font-size:17px;color:var(--text2);max-width:480px;line-height:1.7;margin-bottom:2.5rem}
+.hero-ctas{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:2rem}
+.hero-trust{display:flex;gap:1.5rem;flex-wrap:wrap}
+.trust-item{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text3);font-family:var(--mono)}
+.trust-dot{width:5px;height:5px;border-radius:50%;background:var(--accent)}
+
+/* Hero visual — terminal card */
+.hero-visual{position:relative}
+.terminal{background:var(--bg2);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.terminal-bar{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--bg3)}
+.t-dot{width:10px;height:10px;border-radius:50%}
+.t-title{flex:1;text-align:center;font-family:var(--mono);font-size:11px;color:var(--text3)}
+.terminal-body{padding:1.25rem 1.5rem;font-family:var(--mono);font-size:12px;line-height:2}
+.t-line{display:flex;gap:10px}
+.t-prompt{color:var(--accent)}
+.t-cmd{color:var(--text)}
+.t-out{color:var(--text2);padding-left:20px}
+.t-ok{color:var(--accent)}
+.t-warn{color:var(--amber)}
+.status-row{display:flex;align-items:center;justify-content:space-between;background:rgba(0,200,150,.06);border:1px solid var(--border2);border-radius:8px;padding:10px 14px;margin-top:12px}
+.s-label{font-family:var(--mono);font-size:11px;color:var(--text2)}
+.s-val{font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:700}
+
+/* ── STATS ── */
+.stats{border-top:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--bg2)}
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr)}
+.stat-item{padding:2rem;text-align:center;border-right:1px solid var(--border)}
+.stat-item:last-child{border-right:none}
+.stat-num{font-size:34px;font-weight:800;color:var(--accent);font-family:var(--mono);letter-spacing:-1px}
+.stat-label{font-size:12px;color:var(--text3);margin-top:4px;font-weight:600;letter-spacing:.05em;text-transform:uppercase}
+
+/* ── FEATURES ── */
+.section-tag{font-family:var(--mono);font-size:11px;color:var(--accent);letter-spacing:.12em;text-transform:uppercase;margin-bottom:.75rem}
+.section-title{font-size:clamp(28px,3.5vw,42px);font-weight:800;letter-spacing:-1.5px;margin-bottom:.75rem}
+.section-sub{color:var(--text2);font-size:16px;max-width:500px;line-height:1.7;margin-bottom:3rem}
+.features-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.feat-card{background:var(--bg2);padding:2rem;transition:background .2s}
+.feat-card:hover{background:var(--surf)}
+.feat-icon{width:42px;height:42px;border-radius:10px;background:var(--adim);border:1px solid var(--border2);display:flex;align-items:center;justify-content:center;margin-bottom:1.25rem}
+.feat-icon svg{width:18px;height:18px;stroke:var(--accent);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.feat-card h3{font-size:15px;font-weight:700;margin-bottom:8px}
+.feat-card p{font-size:13px;color:var(--text2);line-height:1.7}
+
+/* ── HOW IT WORKS ── */
+.how-section{background:var(--bg2);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+.how-grid{display:grid;grid-template-columns:1fr 1fr;gap:5rem;align-items:center}
+.steps-list{display:flex;flex-direction:column}
+.step-item{display:flex;gap:1rem;padding:1.1rem 0;border-bottom:1px solid var(--border)}
+.step-item:last-child{border-bottom:none}
+.step-num{font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:700;min-width:24px;padding-top:2px}
+.step-item h4{font-size:14px;font-weight:700;margin-bottom:3px}
+.step-item p{font-size:13px;color:var(--text2);line-height:1.6}
+.tunnel-card{background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:1.5rem}
+.tunnel-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-family:var(--mono);font-size:11px}
+.t-label{color:var(--text3);min-width:68px}
+.t-bar{flex:1;height:26px;border-radius:4px;display:flex;align-items:center;padding:0 10px;font-size:10px;font-weight:700;letter-spacing:.04em}
+.t-enc{background:var(--adim);border:1px solid var(--border2);color:var(--accent)}
+.t-raw{background:rgba(255,71,87,.07);border:1px solid rgba(255,71,87,.2);color:var(--red)}
+.t-key{background:rgba(255,184,48,.07);border:1px solid rgba(255,184,48,.2);color:var(--amber)}
+.tunnel-divider{display:flex;align-items:center;gap:8px;margin:4px 0 4px 76px;font-family:var(--mono);font-size:9px;color:var(--accent)}
+
+/* ── PLATFORMS ── */
+.platforms-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+.platform-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:1.5rem 1rem;text-align:center;transition:border-color .2s}
+.platform-card:hover{border-color:var(--border2)}
+.platform-icon{font-size:28px;margin-bottom:.75rem}
+.platform-name{font-size:13px;font-weight:700;margin-bottom:4px}
+.platform-sub{font-size:11px;color:var(--text3)}
+
+/* ── PRICING ── */
+.pricing-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;max-width:860px;margin:0 auto}
+.price-card{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:2rem;position:relative;transition:all .2s}
+.price-card:hover{border-color:var(--border2);transform:translateY(-2px)}
+.price-card.featured{border-color:var(--accent);background:var(--surf)}
+.price-badge{position:absolute;top:-12px;left:50%;transform:translateX(-50%);background:var(--accent);color:#050810;font-size:10px;font-weight:700;padding:4px 14px;border-radius:100px;white-space:nowrap;font-family:var(--mono)}
+.price-name{font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.08em;text-transform:uppercase;margin-bottom:.75rem}
+.price-amount{font-size:44px;font-weight:800;letter-spacing:-2px;font-family:var(--mono);line-height:1}
+.price-amount span{font-size:15px;color:var(--text2);font-family:var(--sans);font-weight:400;letter-spacing:0}
+.price-period{font-size:12px;color:var(--text3);margin:6px 0 1.25rem}
+.price-features{display:flex;flex-direction:column;gap:9px;margin-bottom:1.5rem}
+.pf{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text2)}
+.pf-dot{width:5px;height:5px;border-radius:50%;background:var(--accent);flex-shrink:0}
+.price-cta{width:100%;padding:12px;font-family:var(--sans);font-size:14px;font-weight:700;border-radius:8px;cursor:pointer;transition:all .2s}
+.price-outline{background:transparent;border:1px solid var(--border2);color:var(--text)}
+.price-outline:hover{border-color:var(--accent);color:var(--accent)}
+.price-solid{background:var(--accent);border:none;color:#050810}
+.price-solid:hover{background:var(--accent2)}
+
+/* ── FAQ ── */
+.faq-grid{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:2px}
+.faq-item{background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.faq-q{display:flex;align-items:center;justify-content:space-between;padding:1.1rem 1.25rem;cursor:pointer;font-size:14px;font-weight:700;transition:background .2s;user-select:none}
+.faq-q:hover{background:var(--surf)}
+.faq-arrow{font-size:16px;color:var(--accent);transition:transform .25s;flex-shrink:0}
+.faq-item.open .faq-arrow{transform:rotate(45deg)}
+.faq-a{max-height:0;overflow:hidden;transition:max-height .3s ease}
+.faq-item.open .faq-a{max-height:200px}
+.faq-a-inner{padding:0 1.25rem 1.1rem;font-size:13px;color:var(--text2);line-height:1.7;border-top:1px solid var(--border)}
+
+/* ── CTA BANNER ── */
+.cta-banner{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:3.5rem;text-align:center;margin:0 auto;max-width:700px}
+.cta-banner h2{font-size:36px;font-weight:800;letter-spacing:-1.5px;margin-bottom:.75rem}
+.cta-banner p{color:var(--text2);font-size:16px;margin-bottom:2rem}
+.cta-ctas{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+
+/* ── FOOTER ── */
+footer{padding:4rem 0 2rem;border-top:1px solid var(--border)}
+.footer-grid{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:3rem;margin-bottom:3rem}
+.footer-logo{font-size:18px;font-weight:800;margin-bottom:.75rem}
+.footer-logo span{color:var(--accent)}
+.footer-desc{font-size:13px;color:var(--text2);line-height:1.7;max-width:240px;margin-bottom:1rem}
+.footer-col h4{font-size:11px;font-weight:700;color:var(--text);letter-spacing:.08em;text-transform:uppercase;margin-bottom:.9rem}
+.footer-col a{display:block;font-size:13px;color:var(--text2);margin-bottom:7px;transition:color .2s}
+.footer-col a:hover{color:var(--accent)}
+.footer-bottom{display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--border);padding-top:1.5rem;flex-wrap:wrap;gap:1rem}
+.footer-copy{font-size:12px;color:var(--text3);font-family:var(--mono)}
+.enc-badges{display:flex;gap:6px}
+.enc-badge{background:var(--adim);border:1px solid var(--border2);color:var(--accent);font-family:var(--mono);font-size:10px;padding:4px 10px;border-radius:4px}
+
+/* ── MOBILE ── */
+@media(max-width:900px){
+  .nav-links{display:none}
+  .hamburger{display:flex}
+  .hero-grid,.how-grid{grid-template-columns:1fr}
+  .hero-visual{display:none}
+  .features-grid{grid-template-columns:1fr 1fr}
+  .stats-grid{grid-template-columns:repeat(2,1fr)}
+  .stat-item{border-bottom:1px solid var(--border)}
+  .platforms-grid{grid-template-columns:repeat(3,1fr)}
+  .pricing-grid{grid-template-columns:1fr}
+  .footer-grid{grid-template-columns:1fr 1fr}
+}
+@media(max-width:600px){
+  .features-grid{grid-template-columns:1fr}
+  .platforms-grid{grid-template-columns:repeat(2,1fr)}
+  .footer-grid{grid-template-columns:1fr}
+  .hero h1{letter-spacing:-1px}
+}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="nav" id="nav">
+  <div class="container">
+    <div class="nav-inner">
+      <a href="/" class="logo">Secure<span>Fast</span></a>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#how">Protocol</a>
+        <a href="#pricing">Pricing</a>
+        <a href="/login">Sign in</a>
+      </div>
+      <div class="nav-ctas">
+        <a href="/login" class="btn btn-outline btn-nav">Sign in</a>
+        <a href="#pricing" class="btn btn-primary btn-nav">Get started</a>
+      </div>
+      <div class="hamburger" onclick="toggleMenu()">
+        <span></span><span></span><span></span>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="container">
+    <div class="hero-grid">
+      <div>
+        <div class="hero-badge"><div class="pulse"></div>IKEv2 / IPsec · AES-256 · Zero Logs</div>
+        <h1>Encrypt<br>everything.<br><em>Expose nothing.</em></h1>
+        <p>Enterprise-grade VPN built on StrongSwan IKEv2/IPsec. Connect any device directly through native OS settings — no app required. Your IP, private.</p>
+        <div class="hero-ctas">
+          <a href="#pricing" class="btn btn-primary btn-lg">Start for ₦1,500/mo</a>
+          <a href="#how" class="btn btn-outline btn-lg">See how it works</a>
+        </div>
+        <div class="hero-trust">
+          <div class="trust-item"><div class="trust-dot"></div>No app install</div>
+          <div class="trust-item"><div class="trust-dot"></div>Instant activation</div>
+          <div class="trust-item"><div class="trust-dot"></div>Zero traffic logs</div>
+        </div>
+      </div>
+      <div class="hero-visual">
+        <div class="terminal">
+          <div class="terminal-bar">
+            <div class="t-dot" style="background:#ff5f57"></div>
+            <div class="t-dot" style="background:#febc2e"></div>
+            <div class="t-dot" style="background:#28c840"></div>
+            <div class="t-title">turnip — tunnel</div>
+          </div>
+          <div class="terminal-body">
+            <div class="t-line"><span class="t-prompt">$</span><span class="t-cmd">ipsec statusall</span></div>
+            <div class="t-line"><span class="t-out">Security Associations (3 up, 0 connecting):</span></div>
+            <div class="t-line"><span class="t-out t-ok">turnip[1]: ESTABLISHED 2 minutes ago</span></div>
+            <div class="t-line"><span class="t-out">IKEv2 SPIs: a3f2c1d4_i b8e7a6f5_r</span></div>
+            <div class="t-line"><span class="t-out t-ok">AES_CBC_256/HMAC_SHA2_256_128/PRF_HMAC_SHA2_256/ECP_384</span></div>
+            <div class="t-line"><span class="t-prompt">$</span><span class="t-cmd">cat /etc/ipsec.secrets | grep EAP | wc -l</span></div>
+            <div class="t-line"><span class="t-out">47</span></div>
+            <div class="status-row">
+              <span class="s-label">TUNNEL STATUS</span>
+              <span class="s-val">● ACTIVE · 47/80 users</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- STATS -->
+<div class="stats">
+  <div class="container">
+    <div class="stats-grid">
+      <div class="stat-item"><div class="stat-num">AES-256</div><div class="stat-label">Encryption standard</div></div>
+      <div class="stat-item"><div class="stat-num">4</div><div class="stat-label">Global server regions</div></div>
+      <div class="stat-item"><div class="stat-num">0</div><div class="stat-label">Traffic logs stored</div></div>
+      <div class="stat-item"><div class="stat-num">5</div><div class="stat-label">Platforms supported</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- FEATURES -->
+<section class="section" id="features">
+  <div class="container">
+    <div class="section-tag">// capabilities</div>
+    <div class="section-title">Security-first by design.</div>
+    <div class="section-sub">Built on battle-tested IKEv2/IPsec — the same protocol trusted by enterprise networks worldwide.</div>
+    <div class="features-grid">
+      <div class="feat-card">
+        <div class="feat-icon"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+        <h3>IKEv2/IPsec tunneling</h3>
+        <p>Military-grade key exchange with AES-256 encryption and SHA-256 integrity verification. Unique session keys generated per connection.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div>
+        <h3>No app required</h3>
+        <p>Configure directly in your OS VPN settings. iOS, Android, Windows, macOS, and Linux all supported natively. Zero downloads.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></div>
+        <h3>Zero traffic logs</h3>
+        <p>We log connection timestamps and server health only. Your browsing activity, DNS queries, and traffic are never recorded.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon"><svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
+        <h3>Dead peer detection</h3>
+        <p>Stale connections are automatically cleaned up. Your session stays lean, and reconnection is near-instant on any device.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon"><svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg></div>
+        <h3>StrongSwan engine</h3>
+        <p>Powered by the industry-standard StrongSwan IPsec daemon on dedicated Linux VPS infrastructure with full NAT traversal.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon"><svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></div>
+        <h3>Instant activation</h3>
+        <p>Pay once, receive credentials and a one-tap .mobileconfig profile by email within seconds. No manual setup, no waiting.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="section how-section" id="how">
+  <div class="container">
+    <div class="how-grid">
+      <div>
+        <div class="section-tag">// how it works</div>
+        <div class="section-title" style="margin-bottom:.5rem">The IKEv2<br>handshake.</div>
+        <div style="color:var(--text2);font-size:15px;margin-bottom:2.5rem">Seven steps from your device to fully encrypted internet.</div>
+        <div class="steps-list">
+          <div class="step-item"><div class="step-num">01</div><div><h4>Enter credentials</h4><p>Username, password, and server address entered in native OS VPN settings.</p></div></div>
+          <div class="step-item"><div class="step-num">02</div><div><h4>IKE_SA_INIT</h4><p>Client initiates cryptographic handshake with the gateway on UDP 500/4500.</p></div></div>
+          <div class="step-item"><div class="step-num">03</div><div><h4>Server responds</h4><p>Gateway sends encryption parameters and X.509 certificate for verification.</p></div></div>
+          <div class="step-item"><div class="step-num">04</div><div><h4>EAP-MSCHAPv2 auth</h4><p>Credentials authenticated. Session keys derived via Diffie-Hellman key exchange.</p></div></div>
+          <div class="step-item"><div class="step-num">05</div><div><h4>IPsec tunnel established</h4><p>ESP encrypts all packets at the network layer with AES-256-GCM.</p></div></div>
+          <div class="step-item"><div class="step-num">06</div><div><h4>Virtual IP assigned</h4><p>StrongSwan allocates a virtual IP from the 10.10.10.0/24 subnet.</p></div></div>
+          <div class="step-item"><div class="step-num">07</div><div><h4>NAT + full routing</h4><p>All traffic exits through the server's public IP. Your real IP is hidden.</p></div></div>
+        </div>
+      </div>
+      <div>
+        <div class="tunnel-card">
+          <div style="font-family:var(--mono);font-size:10px;color:var(--text3);letter-spacing:.1em;text-transform:uppercase;margin-bottom:1.25rem">Live packet view</div>
+          <div class="tunnel-row"><div class="t-label">Your device</div><div class="t-bar t-raw">PLAINTEXT HTTP REQUEST</div></div>
+          <div class="tunnel-divider">▼ AES-256 ESP encrypt</div>
+          <div class="tunnel-row"><div class="t-label">IPsec tunnel</div><div class="t-bar t-enc">■ ■ ■ ENCRYPTED ESP PACKET ■ ■ ■</div></div>
+          <div class="tunnel-divider">▼ gateway decrypts + NAT</div>
+          <div class="tunnel-row"><div class="t-label">Exit node</div><div class="t-bar t-raw">HTTP + MASKED PUBLIC IP</div></div>
+          <div style="margin-top:1.25rem;padding-top:1.25rem;border-top:1px solid var(--border)">
+            <div style="font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:.75rem">Session keys</div>
+            <div class="tunnel-row" style="margin-bottom:5px"><div class="t-label">Cipher</div><div class="t-bar t-key">AES-256-GCM</div></div>
+            <div class="tunnel-row" style="margin-bottom:5px"><div class="t-label">Integrity</div><div class="t-bar t-key">SHA2-256-HMAC</div></div>
+            <div class="tunnel-row"><div class="t-label">DH Group</div><div class="t-bar t-key">MODP-2048 (Group 14)</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PLATFORMS -->
+<section class="section" id="platforms">
+  <div class="container" style="text-align:center">
+    <div class="section-tag" style="display:inline-block">// compatibility</div>
+    <div class="section-title">Works on everything.</div>
+    <div class="section-sub" style="margin:0 auto 3rem">Native IKEv2 support built into every major OS. Connect in under two minutes with zero third-party software.</div>
+    <div class="platforms-grid">
+      <div class="platform-card"><div class="platform-icon">📱</div><div class="platform-name">iOS</div><div class="platform-sub">iPhone & iPad<br>One-tap profile</div></div>
+      <div class="platform-card"><div class="platform-icon">🤖</div><div class="platform-name">Android</div><div class="platform-sub">Via strongSwan<br>Free app</div></div>
+      <div class="platform-card"><div class="platform-icon">🪟</div><div class="platform-name">Windows</div><div class="platform-sub">Built-in VPN<br>Settings → Add</div></div>
+      <div class="platform-card"><div class="platform-icon">🍎</div><div class="platform-name">macOS</div><div class="platform-sub">System Settings<br>One-tap profile</div></div>
+      <div class="platform-card"><div class="platform-icon">🐧</div><div class="platform-name">Linux</div><div class="platform-sub">NetworkManager<br>or nmcli</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- PRICING -->
+<section class="section" id="pricing" style="background:var(--bg2);border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
+  <div class="container" style="text-align:center">
+    <div class="section-tag" style="display:inline-block">// pricing</div>
+    <div class="section-title">Simple, transparent plans.</div>
+    <div class="section-sub" style="margin:0 auto 3rem">Pay for access. No data harvesting, no upsells, no nonsense.</div>
+    <div class="pricing-grid">
+      <div class="price-card">
+        <div class="price-name">Basic</div>
+        <div class="price-amount">₦1,500<span>/mo</span></div>
+        <div class="price-period">1 device · 30 days</div>
+        <div class="price-features">
+          <div class="pf"><div class="pf-dot"></div>1 device</div>
+          <div class="pf"><div class="pf-dot"></div>AES-256 encryption</div>
+          <div class="pf"><div class="pf-dot"></div>2 server regions</div>
+          <div class="pf"><div class="pf-dot"></div>Zero traffic logs</div>
+          <div class="pf"><div class="pf-dot"></div>Email support</div>
+        </div>
+        <button class="price-cta price-outline" onclick="goToPricing('basic', 1500)">Get started</button>
+      </div>
+      <div class="price-card featured">
+        <div class="price-badge">Most Popular</div>
+        <div class="price-name">Pro</div>
+        <div class="price-amount">₦4,000<span>/mo</span></div>
+        <div class="price-period">5 devices · 30 days</div>
+        <div class="price-features">
+          <div class="pf"><div class="pf-dot"></div>5 devices</div>
+          <div class="pf"><div class="pf-dot"></div>AES-256 encryption</div>
+          <div class="pf"><div class="pf-dot"></div>All 4 server regions</div>
+          <div class="pf"><div class="pf-dot"></div>Zero traffic logs</div>
+          <div class="pf"><div class="pf-dot"></div>Priority support</div>
+          <div class="pf"><div class="pf-dot"></div>Custom VPN profiles</div>
+        </div>
+        <button class="price-cta price-solid" onclick="goToPricing('pro', 4000)">Get started</button>
+      </div>
+      <div class="price-card">
+        <div class="price-name">Business</div>
+        <div class="price-amount">₦10,000<span>/mo</span></div>
+        <div class="price-period">Unlimited devices · 30 days</div>
+        <div class="price-features">
+          <div class="pf"><div class="pf-dot"></div>Unlimited devices</div>
+          <div class="pf"><div class="pf-dot"></div>AES-256 encryption</div>
+          <div class="pf"><div class="pf-dot"></div>All 4 server regions</div>
+          <div class="pf"><div class="pf-dot"></div>Zero traffic logs</div>
+          <div class="pf"><div class="pf-dot"></div>Dedicated support</div>
+          <div class="pf"><div class="pf-dot"></div>Multi-server sync</div>
+        </div>
+        <button class="price-cta price-outline" onclick="goToPricing('business', 10000)">Get started</button>
+      </div>
+    </div>
+    <p style="font-size:12px;color:var(--text3);margin-top:1.5rem">Payments secured by Paystack · Instant activation · Cancel anytime</p>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section class="section" id="faq">
+  <div class="container" style="text-align:center">
+    <div class="section-tag" style="display:inline-block">// faq</div>
+    <div class="section-title" style="margin-bottom:3rem">Common questions.</div>
+    <div class="faq-grid">
+      <div class="faq-item">
+        <div class="faq-q" onclick="toggleFaq(this)">Do I need to install an app?<span class="faq-arrow">+</span></div>
+        <div class="faq-a"><div class="faq-a-inner">No. Turnip VPN uses the IKEv2 protocol built into iOS, macOS, Windows, and Linux. On iOS and macOS, open the .mobileconfig file you receive and the VPN is configured in one tap. On Android, use the free strongSwan app.</div></div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q" onclick="toggleFaq(this)">How quickly is my account activated?<span class="faq-arrow">+</span></div>
+        <div class="faq-a"><div class="faq-a-inner">Instantly. As soon as your Paystack payment is confirmed, our system automatically creates your VPN credentials and emails you the setup profile. The whole process takes under 30 seconds.</div></div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q" onclick="toggleFaq(this)">Do you keep logs of my activity?<span class="faq-arrow">+</span></div>
+        <div class="faq-a"><div class="faq-a-inner">No. We log connection timestamps and server performance metrics only. Your DNS queries, browsing history, and traffic contents are never stored. We have nothing to hand over because we never collect it.</div></div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q" onclick="toggleFaq(this)">What encryption does it use?<span class="faq-arrow">+</span></div>
+        <div class="faq-a"><div class="faq-a-inner">AES-256-GCM for data encryption, SHA2-256 for integrity verification, and Diffie-Hellman Group 14 (MODP-2048) for key exchange. IKEv2 provides perfect forward secrecy — each session uses unique keys that cannot decrypt past or future sessions.</div></div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q" onclick="toggleFaq(this)">Can I use it on multiple devices?<span class="faq-arrow">+</span></div>
+        <div class="faq-a"><div class="faq-a-inner">Yes. Basic supports 1 device, Pro supports 5 simultaneous devices, and Business supports unlimited devices — all using the same credentials. Each device gets its own setup guide in your customer dashboard.</div></div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q" onclick="toggleFaq(this)">What happens when my subscription expires?<span class="faq-arrow">+</span></div>
+        <div class="faq-a"><div class="faq-a-inner">You'll receive a renewal reminder 3 days before expiry. After expiry, your VPN account is automatically deactivated. Renew anytime from your dashboard and new credentials are issued instantly.</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA BANNER -->
+<section class="section" style="padding-top:0">
+  <div class="container">
+    <div class="cta-banner">
+      <h2>Start encrypting<br>today.</h2>
+      <p>Instant activation. Zero setup complexity. Connect in under 60 seconds.</p>
+      <div class="cta-ctas">
+        <a href="/pricing" class="btn btn-primary btn-lg">Get started — ₦1,500/mo</a>
+        <a href="/login" class="btn btn-outline btn-lg">Sign in →</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="container">
+    <div class="footer-grid">
+      <div>
+        <div class="footer-logo">Secure<span>Fast</span></div>
+        <div class="footer-desc">High-performance IKEv2/IPsec VPN. Encrypted, private, and fast — for individuals and teams.</div>
+      </div>
+      <div class="footer-col">
+        <h4>Product</h4>
+        <a href="#features">Features</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#platforms">Platforms</a>
+        <a href="#faq">FAQ</a>
+      </div>
+      <div class="footer-col">
+        <h4>Account</h4>
+        <a href="/login">Sign in</a>
+        <a href="/pricing">Get started</a>
+        <a href="/dashboard">Dashboard</a>
+      </div>
+      <div class="footer-col">
+        <h4>Legal</h4>
+        <a href="/privacy">Privacy policy</a>
+        <a href="/terms">Terms of service</a>
+        <a href="/security">Security</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <div class="footer-copy">© 2025 Turnip VPN. All rights reserved.</div>
+      <div class="enc-badges">
+        <div class="enc-badge">AES-256</div>
+        <div class="enc-badge">IKEv2</div>
+        <div class="enc-badge">ZERO LOGS</div>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script src="https://js.paystack.co/v1/inline.js"></script>
+<script>
+// Nav scroll effect
+window.addEventListener('scroll', () => {
+  document.getElementById('nav').classList.toggle('scrolled', window.scrollY > 40);
+});
+
+// FAQ accordion
+function toggleFaq(el) {
+  const item = el.parentElement;
+  const isOpen = item.classList.contains('open');
+  document.querySelectorAll('.faq-item').forEach(i => i.classList.remove('open'));
+  if (!isOpen) item.classList.add('open');
+}
+
+// Mobile menu
+function toggleMenu() {
+  const links = document.querySelector('.nav-links');
+  links.style.display = links.style.display === 'flex' ? 'none' : 'flex';
+  links.style.flexDirection = 'column';
+  links.style.position = 'absolute';
+  links.style.top = '100%';
+  links.style.left = '0';
+  links.style.right = '0';
+  links.style.background = 'var(--bg2)';
+  links.style.padding = '1rem 2rem';
+  links.style.borderBottom = '1px solid var(--border)';
+}
+
+// Paystack inline checkout
+function goToPricing(plan, amount) {
+  window.location.href = '/pricing';
+}
+</script>
+</body>
+</html>
