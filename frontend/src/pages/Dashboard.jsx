@@ -11,17 +11,22 @@ const Dashboard = () => {
     const [copied, setCopied] = useState(null);
     const [isLinking, setIsLinking] = useState(false);
 
-    // Mock data for initial design
     useEffect(() => {
-        setSub({
-            email: 'user@example.com',
-            username: 'vpn_user_9921',
-            password: '••••••••••••',
-            status: 'active',
-            plan_name: 'Pro',
-            expires_at: '2025-04-14 10:00:00',
-            wallet_address: null
-        });
+        const fetchStatus = async () => {
+            try {
+                const res = await fetch('/api/user/status');
+                const data = await res.json();
+                if (data.email) {
+                    setSub(data);
+                } else {
+                    window.location.href = '/login';
+                }
+            } catch (err) {
+                console.error('Failed to fetch user status:', err);
+                window.location.href = '/login';
+            }
+        };
+        fetchStatus();
     }, []);
 
     const copyToClipboard = (text, id) => {

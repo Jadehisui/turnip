@@ -18,24 +18,19 @@ echo -e "${BOLD}║         Turnip VPN — Customer Portal Setup           ║${
 echo -e "${BOLD}╚══════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
-# ── Add portal secret key to .env if not present ─────────────────────────────
+# ── Remove old Paystack public key prompt (now using Lemon Squeezy) ─────────
+# Add portal secret key to .env if not present
 if ! grep -q "PORTAL_SECRET_KEY" /opt/turnip/.env; then
     PORTAL_KEY=$(openssl rand -hex 32)
     echo "PORTAL_SECRET_KEY=${PORTAL_KEY}" >> /opt/turnip/.env
     info "Portal secret key generated"
 fi
 
-# ── Add Paystack public key prompt ────────────────────────────────────────────
-if ! grep -q "PAYSTACK_PUBLIC_KEY" /opt/turnip/.env; then
-    echo ""
-    echo -e "${YELLOW}Enter your Paystack PUBLIC key (pk_live_...):${NC}"
-    read -r PK_KEY
-    echo "PAYSTACK_PUBLIC_KEY=${PK_KEY}" >> /opt/turnip/.env
-fi
-
 # ── Deploy portal ─────────────────────────────────────────────────────────────
 info "Deploying portal..."
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cp portal.py /opt/turnip/portal.py
+cp -r "${SCRIPT_DIR}/../backend/crypto_payments.py" /opt/turnip/
 success "portal.py deployed"
 
 # ── Systemd service ───────────────────────────────────────────────────────────
@@ -75,10 +70,18 @@ server {
     listen 80;
     server_name ${DOMAIN};
 
-    root /home/carnage/Downloads/turnip-project/turnip/frontend/dist;
+    root /opt/turnip/frontend/dist;
     index index.html;
 
-    location /webhook/paystack {
+    location /webhook/lemonsqueezy {
+        proxy_pass       http://127.0.0.1:8766;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 30s;
+    }
+
+    location /webhook/nowpayments {
         proxy_pass       http://127.0.0.1:8766;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;

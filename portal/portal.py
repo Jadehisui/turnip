@@ -24,7 +24,7 @@ from functools import wraps
 
 from flask import (
     Flask, request, session, redirect, url_for,
-    render_template, jsonify, send_file, make_response, send_from_directory
+    render_template, render_template_string, jsonify, send_file, make_response, send_from_directory
 )
 from dotenv import load_dotenv
 import requests as http
@@ -37,7 +37,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("/var/log/turnip-portal.log"),
+        logging.FileHandler("portal.log"),
         logging.StreamHandler(),
     ]
 )
@@ -45,7 +45,7 @@ log = logging.getLogger(__name__)
 
 # Import shared modules from payment backend
 import sys
-sys.path.insert(0, "/opt/turnip")
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../backend"))
 from database import db_init, get_subscription, get_all_subscriptions, record_payment
 from provisioner import provision_user, deprovision_user, generate_password, generate_mobileconfig, get_plan_for_amount, PLANS, CA_CERT_PATH
 
@@ -55,9 +55,16 @@ app = Flask(__name__,
 app.secret_key      = os.environ.get("PORTAL_SECRET_KEY", secrets.token_hex(32))
 app.permanent_session_lifetime = timedelta(hours=12)
 
-PAYSTACK_PUBLIC_KEY = os.environ.get("PAYSTACK_PUBLIC_KEY", "")
-PAYSTACK_SECRET_KEY = os.environ.get("PAYSTACK_SECRET_KEY", "")
-VPN_SERVER_ADDR     = os.environ.get("VPN_SERVER_ADDR", "vpn.yourdomain.com")
+VPN_SERVER_ADDR = os.environ.get("VPN_SERVER_ADDR", "vpn.yourdomain.com")
+SITE_URL        = os.environ.get("SITE_URL", "")
+
+# Lemon Squeezy — one pre-created variant URL per plan (from LS dashboard)
+# Append ?checkout[email]=...&checkout[custom][plan_code]=... for pre-fill
+LS_VARIANT_URLS = {
+    "basic":    os.environ.get("LEMONSQUEEZY_BASIC_VARIANT_URL", ""),
+    "pro":      os.environ.get("LEMONSQUEEZY_PRO_VARIANT_URL", ""),
+    "business": os.environ.get("LEMONSQUEEZY_BUSINESS_VARIANT_URL", ""),
+}
 
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
@@ -89,16 +96,7 @@ def days_remaining(expires_at: str) -> int:
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
-@app.route("/", defaults={"path": ""})
-@app.route("/<path:path>")
-def serve(path):
-    if path != "" and os.path.exists(app.static_folder + "/" + path):
-        return send_from_directory(app.static_folder, path)
-    else:
-        # If it's an API route that somehow reached here, it's 404
-        if path.startswith("api/"):
-            return jsonify({"error": "Not Found"}), 404
-        return render_template("index.html")
+
 
 
 @app.route("/api/user/status")
@@ -115,6 +113,10 @@ def user_status():
         "expires_at": user["expires_at"],
         "wallet_address": user["wallet_address"]
     })
+
+
+@app.route("/login", methods=["GET"])
+def login_page():
     error = request.args.get("error", "")
     return render_template_string(LOGIN_TEMPLATE, error=error)
 
@@ -179,7 +181,6 @@ def dashboard():
         days=days,
         status=status,
         server=VPN_SERVER_ADDR,
-        paystack_key=PAYSTACK_PUBLIC_KEY,
         plans=PLANS,
     )
 
@@ -257,39 +258,77 @@ def regenerate_password():
     return jsonify({"ok": True, "password": new_password})
 
 
+def _ls_checkout_url(email: str, plan_code: str) -> str:
+    """Build a Lemon Squeezy checkout URL with pre-filled email and custom data."""
+    from urllib.parse import urlencode
+    base = LS_VARIANT_URLS.get(plan_code.lower(), "")
+    if not base:
+        raise ValueError(
+            f"No Lemon Squeezy variant URL configured for plan '{plan_code}'. "
+            "Set LEMONSQUEEZY_<PLAN>_VARIANT_URL in .env."
+        )
+    redirect_url = SITE_URL.rstrip("/") + "/login" if SITE_URL else ""
+    params = {"checkout[email]": email, "checkout[custom][plan_code]": plan_code.lower()}
+    if redirect_url:
+        params["checkout[redirect]"] = redirect_url
+    return f"{base}?{urlencode(params)}"
+
+
 @app.route("/api/pay/initiate", methods=["POST"])
 @login_required
 def initiate_payment():
-    """Create a Paystack payment session for renewal/upgrade."""
+    """Return a Lemon Squeezy checkout URL for the logged-in user (renewal/upgrade)."""
     data      = request.get_json()
-    amount    = int(data.get("amount_ngn", 4000)) * 100  # convert to kobo
-    email     = session["email"]
+    plan_code = data.get("plan_code", "pro")
+    try:
+        payment_url = _ls_checkout_url(session["email"], plan_code)
+        return jsonify({"ok": True, "payment_url": payment_url})
+    except ValueError as e:
+        log.error(f"LS checkout URL error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/pay/public/initiate", methods=["POST"])
+def pay_public_initiate():
+    """Return a Lemon Squeezy checkout URL for a new (unauthenticated) user."""
+    data      = request.get_json()
+    email     = data.get("email", "")
     plan_code = data.get("plan_code", "pro")
 
+    if not email or "@" not in email:
+        return jsonify({"error": "Valid email is required"}), 400
+
     try:
-        resp = http.post(
-            "https://api.paystack.co/transaction/initialize",
-            headers={
-                "Authorization": f"Bearer {PAYSTACK_SECRET_KEY}",
-                "Content-Type":  "application/json",
-            },
-            json={
-                "email":    email,
-                "amount":   amount,
-                "metadata": {"plan_code": plan_code},
-                "callback_url": f"https://{VPN_SERVER_ADDR}/dashboard",
-            },
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return jsonify({
-            "ok":           True,
-            "payment_url":  data["data"]["authorization_url"],
-        })
+        payment_url = _ls_checkout_url(email, plan_code)
+        return jsonify({"ok": True, "payment_url": payment_url})
+    except ValueError as e:
+        log.error(f"LS checkout URL error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/pay/crypto/initiate", methods=["POST"])
+def crypto_pay_initiate():
+    """Create a NOWPayments hosted crypto invoice."""
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../backend"))
+    from crypto_payments import create_invoice
+
+    data       = request.get_json()
+    email      = data.get("email") or session.get("email", "")
+    amount_ngn = float(data.get("amount_ngn", 4000))
+    plan_code  = data.get("plan_code", "pro")
+
+    if not email or "@" not in email:
+        return jsonify({"error": "Valid email is required"}), 400
+
+    site_url = os.environ.get("SITE_URL", request.url_root.rstrip("/"))
+
+    try:
+        invoice = create_invoice(email, amount_ngn, plan_code, site_url)
+        return jsonify({"ok": True, "payment_url": invoice.get("invoice_url")})
     except Exception as e:
-        log.error(f"Paystack init error: {e}")
-        return jsonify({"error": "Could not initiate payment"}), 500
+        log.error(f"NOWPayments create error: {e}")
+        return jsonify({"error": "Could not create crypto payment. Check NOWPAYMENTS_API_KEY."}), 500
 
 
 @app.route("/api/auth/nonce")
@@ -348,7 +387,6 @@ def pricing():
     return render_template_string(
         PRICING_TEMPLATE,
         plans=PLANS,
-        paystack_key=PAYSTACK_PUBLIC_KEY,
         email=session.get("email", ""),
     )
 
@@ -806,26 +844,30 @@ PRICING_TEMPLATE = """<!DOCTYPE html>
   </div>
   <p style="font-size:12px;color:var(--text3)">Payments secured by Paystack. Instant activation after payment.</p>
 </div>
-<script src="https://js.paystack.co/v1/inline.js"></script>
 <script>
-function startPayment(amount, planCode) {
+async function startPayment(amount, planCode) {
   const email = prompt('Enter your email address:');
   if (!email) return;
-  const handler = PaystackPop.setup({
-    key: '{{ paystack_key }}',
-    email: email,
-    amount: amount * 100,
-    currency: 'NGN',
-    metadata: { plan_code: planCode },
-    callback: function(response) {
-      window.location.href = '/login?ref=' + response.reference;
-    },
-    onClose: function() {}
+  const r = await fetch('/api/pay/public/initiate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, amount_ngn: amount, plan_code: planCode })
   });
-  handler.openIframe();
+  const d = await r.json();
+  if (d.payment_url) window.location.href = d.payment_url;
+  else alert(d.error || 'Could not start payment');
 }
 async function payWithCrypto(amount, planCode) {
-  alert('Crypto payments (SUI/EVM) are currently being processed. Please send ' + amount + ' NGN equivalent to the wallet address provided in the dashboard after linking.');
+  const email = prompt('Enter your email address:');
+  if (!email) return;
+  const r = await fetch('/api/pay/crypto/initiate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, amount_ngn: amount, plan_code: planCode })
+  });
+  const d = await r.json();
+  if (d.payment_url) { window.location.href = d.payment_url; }
+  else { alert(d.error || 'Could not initiate crypto payment'); }
 }
 </script>
 </body></html>"""
@@ -837,3 +879,14 @@ if __name__ == "__main__":
     db_init()
     log.info("Turnip customer portal starting on :8767")
     app.run(host="0.0.0.0", port=8767, debug=False)
+
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def serve(path):
+    if path != "" and os.path.exists(app.static_folder + "/" + path):
+        return send_from_directory(app.static_folder, path)
+    else:
+        # If it's an API route that somehow reached here, it's 404
+        if path.startswith("api/"):
+            return jsonify({"error": "Not Found"}), 404
+        return render_template("index.html")
