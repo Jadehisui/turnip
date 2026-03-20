@@ -30,13 +30,34 @@ const Pricing = () => {
         }
     ];
 
-    const handleCardPayment = (plan) => {
-        alert(`Initiating Paystack payment for ${plan.name} plan...`);
-        // Logic for Paystack inline
+    const handleCardPayment = async (plan) => {
+        const email = prompt('Enter your email for your VPN account credentials:');
+        if (!email || !email.includes('@')) return alert('Please enter a valid email.');
+
+        try {
+            const res = await fetch('/api/pay/public/initiate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email: email,
+                    amount_ngn: parseInt(plan.price.replace(',', '')),
+                    plan_code: plan.name.toLowerCase()
+                })
+            });
+            const data = await res.json();
+            if (data.payment_url) {
+                window.location.href = data.payment_url;
+            } else {
+                alert(data.error || 'Failed to initiate payment.');
+            }
+        } catch (err) {
+            console.error(err);
+            alert('Connection error. Please try again.');
+        }
     };
 
     const handleCryptoPayment = (plan) => {
-        alert(`Crypto payment selected for ${plan.name} plan. SUI and EVM payment addresses will be generated in the next step.`);
+        alert(`Crypto payment selected for ${plan.name} plan. Please contact support or pay via card for instant activation.`);
     };
 
     return (

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Turnip VPN — Paystack Webhook Server
+Turnip VPN — Lemon Squeezy Webhook Server
 Listens for payment events, provisions VPN accounts, emails credentials.
 
 Run:  gunicorn -w 2 -b 0.0.0.0:8766 webhook:app
@@ -11,7 +11,9 @@ import os, hmac, hashlib, json, logging, traceback
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 
-from provisioner import provision_user, deprovision_user, get_plan_for_amount
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../backend"))
+from provisioner import provision_user, deprovision_user, PLANS
 from database import db_init, record_payment, get_subscription, update_subscription_status
 from emailer import send_welcome_email
 
@@ -20,7 +22,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("/var/log/turnip-payments.log"),
+        logging.FileHandler("payments.log"),
         logging.StreamHandler(),
     ]
 )
@@ -28,71 +30,94 @@ log = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-PAYSTACK_SECRET = os.environ["PAYSTACK_SECRET_KEY"]
+LS_WEBHOOK_SECRET = os.environ.get("LEMONSQUEEZY_WEBHOOK_SECRET", "")
+
+# Plan code → plan dict lookup
+PLAN_MAP = {p["name"].lower(): p for p in PLANS}
 
 
 # ── Signature verification ─────────────────────────────────────────────────────
 
-def verify_paystack_signature(payload: bytes, sig_header: str) -> bool:
-    """Validate HMAC-SHA512 signature from Paystack."""
+def verify_lemonsqueezy_signature(payload: bytes, sig_header: str) -> bool:
+    """Validate HMAC-SHA256 signature from Lemon Squeezy."""
+    if not LS_WEBHOOK_SECRET:
+        log.warning("LEMONSQUEEZY_WEBHOOK_SECRET not set — skipping sig check (dev mode)")
+        return True
     expected = hmac.new(
-        PAYSTACK_SECRET.encode("utf-8"),
+        LS_WEBHOOK_SECRET.encode("utf-8"),
         payload,
-        hashlib.sha512
+        hashlib.sha256
     ).hexdigest()
     return hmac.compare_digest(expected, sig_header or "")
 
 
-# ── Event handlers ─────────────────────────────────────────────────────────────
+# ── Shared provisioning helper ────────────────────────────────────────────────
 
-def handle_charge_success(data: dict):
-    """
-    Triggered when a payment is confirmed.
-    Creates VPN credentials and emails the customer.
-    """
-    email       = data["customer"]["email"]
-    amount_kobo = data["amount"]                    # Paystack sends in kobo (₦1 = 100 kobo)
-    amount_ngn  = amount_kobo / 100
-    reference   = data["reference"]
-    metadata    = data.get("metadata", {})
-    plan_code   = metadata.get("plan_code", "")
-
-    log.info(f"Payment confirmed: {email} | ₦{amount_ngn:.0f} | ref={reference}")
-
-    # Prevent duplicate processing
+def _provision_and_record(email: str, plan_code: str, reference: str):
+    """Find plan, provision VPN account, record payment, email credentials."""
     if get_subscription(reference):
         log.warning(f"Duplicate webhook ignored: ref={reference}")
         return
 
-    # Determine plan from amount
-    plan = get_plan_for_amount(amount_ngn, plan_code)
-    log.info(f"Assigning plan: {plan['name']} ({plan['duration_days']} days)")
-
-    # Create VPN account
+    plan  = PLAN_MAP.get(plan_code.lower(), PLAN_MAP.get("pro"))
     creds = provision_user(email, plan)
-    log.info(f"VPN account created: {creds['username']}")
+    log.info(f"VPN account created: {creds['username']} for {email}")
 
-    # Persist to database
     record_payment(
         email=email,
         reference=reference,
-        amount=amount_ngn,
+        amount=plan["min_amount"],
         plan_name=plan["name"],
         duration_days=plan["duration_days"],
         username=creds["username"],
         password=creds["password"],
     )
-
-    # Email credentials + .mobileconfig to customer
     send_welcome_email(email, creds, plan)
     log.info(f"Welcome email sent to {email}")
 
 
-def handle_subscription_disable(data: dict):
-    """Triggered when a recurring subscription is cancelled or payment fails."""
-    email    = data["customer"]["email"]
-    sub_code = data.get("subscription_code", "")
-    log.info(f"Subscription disabled: {email} | sub={sub_code}")
+# ── Event handlers ─────────────────────────────────────────────────────────────
+
+def handle_order_created(data: dict, meta: dict):
+    """One-time order confirmed — create VPN account."""
+    attrs       = data.get("attributes", {})
+    email       = attrs.get("user_email", "")
+    reference   = attrs.get("identifier", str(data.get("id", "")))
+    custom_data = meta.get("custom_data") or {}
+    plan_code   = custom_data.get("plan_code", "pro")
+
+    log.info(f"order_created: {email} | plan={plan_code} | ref={reference}")
+    _provision_and_record(email, plan_code, reference)
+
+
+def handle_subscription_created(data: dict, meta: dict):
+    """New subscription — same provisioning flow as one-time order."""
+    attrs       = data.get("attributes", {})
+    email       = attrs.get("user_email", "")
+    reference   = f"sub_{data.get('id', '')}"
+    custom_data = meta.get("custom_data") or {}
+    plan_code   = custom_data.get("plan_code", "pro")
+
+    log.info(f"subscription_created: {email} | plan={plan_code}")
+    _provision_and_record(email, plan_code, reference)
+
+
+def handle_subscription_payment_success(data: dict, meta: dict):
+    """Recurring renewal — re-provision (extends expiry in DB)."""
+    attrs       = data.get("attributes", {})
+    email       = attrs.get("user_email", "")
+    reference   = f"renewal_{data.get('id', '')}_{attrs.get('updated_at', '')}"
+    custom_data = meta.get("custom_data") or {}
+    plan_code   = custom_data.get("plan_code", "pro")
+
+    log.info(f"subscription_payment_success: {email} | plan={plan_code}")
+    _provision_and_record(email, plan_code, reference)
+
+
+def handle_subscription_cancelled(data: dict, meta: dict):
+    """Subscription cancelled — disable VPN account immediately."""
+    email = data.get("attributes", {}).get("user_email", "")
+    log.info(f"subscription_cancelled: {email}")
 
     sub = get_subscription(email=email)
     if sub and sub.get("username"):
@@ -101,57 +126,101 @@ def handle_subscription_disable(data: dict):
         log.info(f"VPN account disabled: {sub['username']}")
 
 
-def handle_subscription_not_renew(data: dict):
-    """Triggered when customer disables auto-renew."""
-    email = data["customer"]["email"]
-    log.info(f"Auto-renew disabled: {email} — account stays active until expiry")
-    update_subscription_status(email, "non_renewing")
+def handle_subscription_expired(data: dict, meta: dict):
+    """Subscription expired — same as cancellation."""
+    handle_subscription_cancelled(data, meta)
 
 
 # ── Event router ───────────────────────────────────────────────────────────────
 
 EVENT_HANDLERS = {
-    "charge.success":             handle_charge_success,
-    "subscription.disable":       handle_subscription_disable,
-    "subscription.not_renew":     handle_subscription_not_renew,
+    "order_created":                  handle_order_created,
+    "subscription_created":           handle_subscription_created,
+    "subscription_payment_success":   handle_subscription_payment_success,
+    "subscription_cancelled":         handle_subscription_cancelled,
+    "subscription_expired":           handle_subscription_expired,
 }
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
-@app.route("/webhook/paystack", methods=["POST"])
-def paystack_webhook():
+@app.route("/webhook/lemonsqueezy", methods=["POST"])
+def lemonsqueezy_webhook():
     payload   = request.get_data()
-    signature = request.headers.get("x-paystack-signature", "")
+    signature = request.headers.get("X-Signature", "")
 
-    if not verify_paystack_signature(payload, signature):
-        log.warning("Invalid Paystack signature — rejected")
+    if not verify_lemonsqueezy_signature(payload, signature):
+        log.warning("Invalid Lemon Squeezy signature — rejected")
         return jsonify({"error": "invalid signature"}), 401
 
     try:
-        event = json.loads(payload)
-        event_type = event.get("event")
+        event      = json.loads(payload)
+        meta       = event.get("meta", {})
+        event_name = meta.get("event_name")
         data       = event.get("data", {})
 
-        log.info(f"Received event: {event_type}")
+        log.info(f"Received LS event: {event_name}")
 
-        handler = EVENT_HANDLERS.get(event_type)
+        handler = EVENT_HANDLERS.get(event_name)
         if handler:
-            handler(data)
+            handler(data, meta)
         else:
-            log.info(f"Unhandled event type: {event_type} — ignoring")
+            log.info(f"Unhandled event type: {event_name} — ignoring")
 
         return jsonify({"status": "ok"}), 200
 
     except Exception as e:
         log.error(f"Webhook processing error: {e}\n{traceback.format_exc()}")
-        # Always return 200 so Paystack doesn't retry endlessly
+        # Always return 200 so Lemon Squeezy doesn't retry endlessly
         return jsonify({"status": "error", "detail": str(e)}), 200
 
 
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok", "service": "Turnip Payment Backend"}), 200
+
+
+# ── NOWPayments webhook ───────────────────────────────────────────────────────
+
+@app.route("/webhook/nowpayments", methods=["POST"])
+def nowpayments_webhook():
+    """Handle IPN callback from NOWPayments after a confirmed crypto payment."""
+    from crypto_payments import verify_nowpayments_signature, handle_successful_payment, NGN_TO_USD_RATE
+
+    payload   = request.get_data()
+    signature = request.headers.get("x-nowpayments-sig", "")
+
+    if not verify_nowpayments_signature(payload, signature):
+        log.warning("Invalid NOWPayments signature — rejected")
+        return jsonify({"error": "invalid signature"}), 401
+
+    try:
+        event          = json.loads(payload)
+        payment_status = event.get("payment_status")
+
+        # Only act on terminal "finished" status
+        if payment_status != "finished":
+            log.info(f"NOWPayments status={payment_status} — not yet finished, skipping")
+            return jsonify({"status": "ok"}), 200
+
+        # order_id format: "email::plan_code::amount_ngn"
+        order_id = event.get("order_id", "")
+        parts    = order_id.split("::")
+        if len(parts) < 2:
+            log.error(f"Unexpected order_id format: {order_id!r}")
+            return jsonify({"status": "error"}), 200
+
+        email      = parts[0]
+        plan_code  = parts[1]
+        amount_ngn = float(parts[2]) if len(parts) >= 3 else float(event.get("price_amount", 0)) * NGN_TO_USD_RATE
+        reference  = f"np_{event.get('payment_id', '')}"
+
+        handle_successful_payment(email, amount_ngn, reference)
+        return jsonify({"status": "ok"}), 200
+
+    except Exception as e:
+        log.error(f"NOWPayments webhook error: {e}\n{traceback.format_exc()}")
+        return jsonify({"status": "error"}), 200
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────

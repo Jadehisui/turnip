@@ -20,13 +20,13 @@ echo ""
 
 # ── Install Python deps ───────────────────────────────────────────────────────
 info "Installing Python dependencies..."
-pip3 install flask gunicorn python-dotenv psutil sendgrid --break-system-packages -q
+pip3 install flask gunicorn python-dotenv psutil sendgrid requests siwe eth-account --break-system-packages -q
 success "Dependencies installed"
 
 # ── Deploy to /opt/turnip ─────────────────────────────────────────────
 info "Deploying payment backend..."
 mkdir -p /opt/turnip
-cp webhook.py provisioner.py emailer.py database.py cron_expire.py /opt/turnip/
+cp webhook.py provisioner.py emailer.py database.py cron_expire.py crypto_payments.py /opt/turnip/
 cp .env /opt/turnip/.env
 chmod 600 /opt/turnip/.env
 success "Files deployed to /opt/turnip/"

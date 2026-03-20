@@ -38,8 +38,7 @@ step "Pre-flight"
     warn "  nano ${SCRIPT_DIR}/backend/.env"
     echo ""
     echo -e "Required values:"
-    echo -e "  PAYSTACK_SECRET_KEY  — from Paystack dashboard"
-    echo -e "  PAYSTACK_PUBLIC_KEY  — from Paystack dashboard"
+    echo -e "  LEMONSQUEEZY_WEBHOOK_SECRET  — from LS dashboard → Settings → Webhooks"
     echo -e "  SMTP_USER / SMTP_PASS — your email credentials"
     echo -e "  VPN_SERVER_ADDR      — set to: ${DOMAIN}"
     echo ""
@@ -52,6 +51,20 @@ grep -q "^VPN_SERVER_ADDR=" "${SCRIPT_DIR}/backend/.env" || \
 sed -i "s|^VPN_SERVER_ADDR=.*|VPN_SERVER_ADDR=${DOMAIN}|" "${SCRIPT_DIR}/backend/.env"
 
 success "Pre-flight passed"
+
+# ── Step 0: Build React frontend ─────────────────────────────────────────────
+step "Step 0 — Build React frontend"
+cd "${SCRIPT_DIR}/frontend"
+if ! command -v node &>/dev/null; then
+    info "Installing Node.js..."
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+    apt-get install -y nodejs
+fi
+npm install --silent
+npm run build
+mkdir -p /opt/turnip/frontend
+cp -r dist /opt/turnip/frontend/dist
+success "Frontend built and copied to /opt/turnip/frontend/dist"
 
 # ── Step 1: VPN Server ────────────────────────────────────────────────────────
 step "Step 1/5 — VPN Server (StrongSwan)"
@@ -97,10 +110,17 @@ server {
     listen 80;
     server_name ${DOMAIN};
 
-    root /home/carnage/Downloads/turnip-project/turnip/frontend/dist;
+    root /opt/turnip/frontend/dist;
     index index.html;
 
-    location /webhook/paystack {
+    location /webhook/lemonsqueezy {
+        proxy_pass       http://127.0.0.1:8766;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    location /webhook/nowpayments {
         proxy_pass       http://127.0.0.1:8766;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -148,8 +168,8 @@ echo -e "  Cockpit         : ${CYAN}https://${DOMAIN}:9090${NC}"
 echo ""
 echo -e "${BOLD}Admin API token  :${NC} ${CYAN}${ADMIN_TOKEN}${NC}"
 echo ""
-echo -e "${BOLD}Register in Paystack dashboard:${NC}"
-echo -e "  Webhook URL: ${CYAN}https://${DOMAIN}/webhook/paystack${NC}"
+echo -e "${BOLD}Register in Lemon Squeezy dashboard:${NC}"
+echo -e "  Webhook URL: ${CYAN}https://${DOMAIN}/webhook/lemonsqueezy${NC}"
 echo ""
 echo -e "${BOLD}Running services:${NC}"
 for svc in strongswan-starter turnip-api turnip-payments turnip-portal turnip-monitor fail2ban nginx; do
