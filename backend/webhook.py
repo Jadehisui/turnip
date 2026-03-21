@@ -53,15 +53,15 @@ def verify_lemonsqueezy_signature(payload: bytes, sig_header: str) -> bool:
 
 # ── Shared provisioning helper ────────────────────────────────────────────────
 
-def _provision_and_record(email: str, plan_code: str, reference: str):
-    """Find plan, provision VPN account, record payment, email credentials."""
+def _provision_and_record(email: str, plan_code: str, reference: str, region: str = "us"):
+    """Find plan, provision VPN account(s), record payment, email credentials."""
     if get_subscription(reference):
         log.warning(f"Duplicate webhook ignored: ref={reference}")
         return
 
     plan  = PLAN_MAP.get(plan_code.lower(), PLAN_MAP.get("pro"))
-    creds = provision_user(email, plan)
-    log.info(f"VPN account created: {creds['username']} for {email}")
+    creds = provision_user(email, plan, region)
+    log.info(f"VPN account(s) created for {email} | region={region}")
 
     record_payment(
         email=email,
@@ -71,6 +71,8 @@ def _provision_and_record(email: str, plan_code: str, reference: str):
         duration_days=plan["duration_days"],
         username=creds["username"],
         password=creds["password"],
+        region=region,
+        devices=creds["devices"],
     )
     send_welcome_email(email, creds, plan)
     log.info(f"Welcome email sent to {email}")
@@ -85,9 +87,10 @@ def handle_order_created(data: dict, meta: dict):
     reference   = attrs.get("identifier", str(data.get("id", "")))
     custom_data = meta.get("custom_data") or {}
     plan_code   = custom_data.get("plan_code", "pro")
+    region      = custom_data.get("region", "us")
 
-    log.info(f"order_created: {email} | plan={plan_code} | ref={reference}")
-    _provision_and_record(email, plan_code, reference)
+    log.info(f"order_created: {email} | plan={plan_code} | region={region} | ref={reference}")
+    _provision_and_record(email, plan_code, reference, region)
 
 
 def handle_subscription_created(data: dict, meta: dict):
@@ -97,9 +100,10 @@ def handle_subscription_created(data: dict, meta: dict):
     reference   = f"sub_{data.get('id', '')}"
     custom_data = meta.get("custom_data") or {}
     plan_code   = custom_data.get("plan_code", "pro")
+    region      = custom_data.get("region", "us")
 
-    log.info(f"subscription_created: {email} | plan={plan_code}")
-    _provision_and_record(email, plan_code, reference)
+    log.info(f"subscription_created: {email} | plan={plan_code} | region={region}")
+    _provision_and_record(email, plan_code, reference, region)
 
 
 def handle_subscription_payment_success(data: dict, meta: dict):
@@ -109,9 +113,10 @@ def handle_subscription_payment_success(data: dict, meta: dict):
     reference   = f"renewal_{data.get('id', '')}_{attrs.get('updated_at', '')}"
     custom_data = meta.get("custom_data") or {}
     plan_code   = custom_data.get("plan_code", "pro")
+    region      = custom_data.get("region", "us")
 
-    log.info(f"subscription_payment_success: {email} | plan={plan_code}")
-    _provision_and_record(email, plan_code, reference)
+    log.info(f"subscription_payment_success: {email} | plan={plan_code} | region={region}")
+    _provision_and_record(email, plan_code, reference, region)
 
 
 def handle_subscription_cancelled(data: dict, meta: dict):
@@ -203,7 +208,7 @@ def nowpayments_webhook():
             log.info(f"NOWPayments status={payment_status} — not yet finished, skipping")
             return jsonify({"status": "ok"}), 200
 
-        # order_id format: "email::plan_code::amount_ngn"
+        # order_id format: "email::plan_code::amount_ngn::region"
         order_id = event.get("order_id", "")
         parts    = order_id.split("::")
         if len(parts) < 2:
@@ -215,7 +220,7 @@ def nowpayments_webhook():
         amount_ngn = float(parts[2]) if len(parts) >= 3 else float(event.get("price_amount", 0)) * NGN_TO_USD_RATE
         reference  = f"np_{event.get('payment_id', '')}"
 
-        handle_successful_payment(email, amount_ngn, reference)
+        handle_successful_payment(email, amount_ngn, reference, order_id=order_id)
         return jsonify({"status": "ok"}), 200
 
     except Exception as e:

@@ -46,8 +46,8 @@ log = logging.getLogger(__name__)
 # Import shared modules from payment backend
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../backend"))
-from database import db_init, get_subscription, get_all_subscriptions, record_payment
-from provisioner import provision_user, deprovision_user, generate_password, generate_mobileconfig, get_plan_for_amount, PLANS, CA_CERT_PATH
+from database import db_init, get_subscription, get_all_subscriptions, record_payment, get_devices_for_email
+from provisioner import provision_user, deprovision_user, generate_password, generate_mobileconfig, get_plan_for_amount, get_server_host, PLANS, CA_CERT_PATH, SERVERS
 
 app = Flask(__name__, 
             static_folder='../frontend/dist', 
@@ -105,13 +105,26 @@ def user_status():
     user = get_current_user()
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
+
+    devices = get_devices_for_email(user["email"])
+    if not devices:
+        # Backward compat for old single-credential subscriptions
+        devices = [{
+            "device_number": 1,
+            "username":      user["username"],
+            "password":      user["password"],
+            "server_region": user.get("server_region", "us"),
+        }]
+
     return jsonify({
-        "email": user["email"],
-        "username": user["username"],
-        "status": user["status"],
-        "plan_name": user["plan_name"],
-        "expires_at": user["expires_at"],
-        "wallet_address": user["wallet_address"]
+        "email":         user["email"],
+        "username":      user["username"],
+        "status":        user["status"],
+        "plan_name":     user["plan_name"],
+        "expires_at":    user["expires_at"],
+        "wallet_address": user.get("wallet_address"),
+        "server_region": user.get("server_region", "us"),
+        "devices":       devices,
     })
 
 
@@ -192,16 +205,27 @@ def download_profile():
     if not sub or sub.get("status") not in ("active", "non_renewing"):
         return redirect(url_for("dashboard"))
 
-    profile_b64 = generate_mobileconfig(
-        sub["username"], sub["password"], VPN_SERVER_ADDR
-    )
+    device_num = int(request.args.get("device", 1))
+    devices    = get_devices_for_email(sub["email"])
+
+    if devices:
+        dev = next((d for d in devices if d["device_number"] == device_num), devices[0])
+        username    = dev["username"]
+        password    = dev["password"]
+        server_host = get_server_host(dev["server_region"])
+    else:
+        username    = sub["username"]
+        password    = sub["password"]
+        server_host = VPN_SERVER_ADDR
+
+    profile_b64  = generate_mobileconfig(username, password, server_host)
     profile_bytes = base64.b64decode(profile_b64)
-    filename = f"turnip-{sub['username']}.mobileconfig"
+    filename      = f"turnip-device{device_num}-{username}.mobileconfig"
 
     response = make_response(profile_bytes)
     response.headers["Content-Type"]        = "application/x-apple-aspen-config"
     response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
-    log.info(f"Profile download: {sub['email']}")
+    log.info(f"Device {device_num} profile download: {sub['email']}")
     return response
 
 
@@ -258,7 +282,7 @@ def regenerate_password():
     return jsonify({"ok": True, "password": new_password})
 
 
-def _ls_checkout_url(email: str, plan_code: str) -> str:
+def _ls_checkout_url(email: str, plan_code: str, region: str = "us") -> str:
     """Build a Lemon Squeezy checkout URL with pre-filled email and custom data."""
     from urllib.parse import urlencode
     base = LS_VARIANT_URLS.get(plan_code.lower(), "")
@@ -268,7 +292,11 @@ def _ls_checkout_url(email: str, plan_code: str) -> str:
             "Set LEMONSQUEEZY_<PLAN>_VARIANT_URL in .env."
         )
     redirect_url = SITE_URL.rstrip("/") + "/login" if SITE_URL else ""
-    params = {"checkout[email]": email, "checkout[custom][plan_code]": plan_code.lower()}
+    params = {
+        "checkout[email]": email,
+        "checkout[custom][plan_code]": plan_code.lower(),
+        "checkout[custom][region]": region,
+    }
     if redirect_url:
         params["checkout[redirect]"] = redirect_url
     return f"{base}?{urlencode(params)}"
@@ -280,8 +308,9 @@ def initiate_payment():
     """Return a Lemon Squeezy checkout URL for the logged-in user (renewal/upgrade)."""
     data      = request.get_json()
     plan_code = data.get("plan_code", "pro")
+    region    = data.get("region", "us")
     try:
-        payment_url = _ls_checkout_url(session["email"], plan_code)
+        payment_url = _ls_checkout_url(session["email"], plan_code, region)
         return jsonify({"ok": True, "payment_url": payment_url})
     except ValueError as e:
         log.error(f"LS checkout URL error: {e}")
@@ -294,12 +323,13 @@ def pay_public_initiate():
     data      = request.get_json()
     email     = data.get("email", "")
     plan_code = data.get("plan_code", "pro")
+    region    = data.get("region", "us")
 
     if not email or "@" not in email:
         return jsonify({"error": "Valid email is required"}), 400
 
     try:
-        payment_url = _ls_checkout_url(email, plan_code)
+        payment_url = _ls_checkout_url(email, plan_code, region)
         return jsonify({"ok": True, "payment_url": payment_url})
     except ValueError as e:
         log.error(f"LS checkout URL error: {e}")
@@ -317,6 +347,7 @@ def crypto_pay_initiate():
     email      = data.get("email") or session.get("email", "")
     amount_ngn = float(data.get("amount_ngn", 4000))
     plan_code  = data.get("plan_code", "pro")
+    region     = data.get("region", "us")
 
     if not email or "@" not in email:
         return jsonify({"error": "Valid email is required"}), 400
@@ -324,7 +355,7 @@ def crypto_pay_initiate():
     site_url = os.environ.get("SITE_URL", request.url_root.rstrip("/"))
 
     try:
-        invoice = create_invoice(email, amount_ngn, plan_code, site_url)
+        invoice = create_invoice(email, amount_ngn, plan_code, site_url, region)
         return jsonify({"ok": True, "payment_url": invoice.get("invoice_url")})
     except Exception as e:
         log.error(f"NOWPayments create error: {e}")
@@ -389,6 +420,32 @@ def pricing():
         plans=PLANS,
         email=session.get("email", ""),
     )
+
+
+@app.route("/api/servers")
+def get_servers():
+    """Return the list of active VPN server regions for the region picker UI."""
+    active = [s for s in SERVERS if s.get("active")]
+    # Don't expose internal host IPs to the frontend
+    safe = [{"region": s["region"], "name": s["name"], "country": s["country"], "flag": s["flag"]} for s in active]
+    return jsonify({"servers": safe})
+
+
+@app.route("/api/geo")
+def get_geo():
+    """Return the visitor's country code based on IP for geo-based pricing."""
+    ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    if ip and ',' in ip:
+        ip = ip.split(',')[0].strip()
+    # Local dev defaults to NG
+    if not ip or ip in ('127.0.0.1', '::1'):
+        return jsonify({'country': 'NG'})
+    try:
+        r = http.get(f'http://ip-api.com/json/{ip}?fields=countryCode', timeout=3)
+        data = r.json()
+        return jsonify({'country': data.get('countryCode', 'NG')})
+    except Exception:
+        return jsonify({'country': 'NG'})
 
 
 @app.route("/health")

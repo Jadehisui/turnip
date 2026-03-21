@@ -52,9 +52,21 @@ def db_init():
                 status       TEXT NOT NULL DEFAULT 'active',
                                             -- active | expired | disabled | non_renewing
                 wallet_address TEXT,
+                server_region  TEXT NOT NULL DEFAULT 'us',
                 expires_at   TEXT NOT NULL,
                 created_at   TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS subscription_devices (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                email         TEXT NOT NULL,
+                device_number INTEGER NOT NULL,
+                username      TEXT NOT NULL,
+                password      TEXT NOT NULL,
+                server_region TEXT NOT NULL DEFAULT 'us',
+                created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(email, device_number)
             );
 
             CREATE TABLE IF NOT EXISTS payments (
@@ -70,8 +82,14 @@ def db_init():
 
             CREATE INDEX IF NOT EXISTS idx_sub_email     ON subscriptions(email);
             CREATE INDEX IF NOT EXISTS idx_sub_username  ON subscriptions(username);
+            CREATE INDEX IF NOT EXISTS idx_dev_email     ON subscription_devices(email);
             CREATE INDEX IF NOT EXISTS idx_pay_reference ON payments(reference);
         """)
+        # Migrate existing DBs that lack server_region column
+        try:
+            conn.execute("ALTER TABLE subscriptions ADD COLUMN server_region TEXT NOT NULL DEFAULT 'us'")
+        except Exception:
+            pass  # column already exists
     log.info(f"Database initialised at {DB_PATH}")
 
 
@@ -85,6 +103,8 @@ def record_payment(
     duration_days: int,
     username: str,
     password: str,
+    region: str = "us",
+    devices: list = None,
 ):
     """Record a confirmed payment and create/extend a subscription."""
     expires_at = (datetime.utcnow() + timedelta(days=duration_days)).isoformat()
@@ -107,17 +127,37 @@ def record_payment(
             conn.execute("""
                 UPDATE subscriptions
                 SET username=?, password=?, plan_name=?, status='active',
-                    expires_at=?, updated_at=?
+                    server_region=?, expires_at=?, updated_at=?
                 WHERE email=?
-            """, (username, password, plan_name, expires_at, now, email))
+            """, (username, password, plan_name, region, expires_at, now, email))
             log.info(f"Subscription renewed: {email}")
         else:
             conn.execute("""
                 INSERT INTO subscriptions
-                    (email, username, password, plan_name, status, expires_at, created_at, updated_at)
-                VALUES (?, ?, ?, ?, 'active', ?, ?, ?)
-            """, (email, username, password, plan_name, expires_at, now, now))
+                    (email, username, password, plan_name, status, server_region, expires_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?)
+            """, (email, username, password, plan_name, region, expires_at, now, now))
             log.info(f"New subscription: {email} → {username}")
+
+        # Store per-device credentials
+        if devices:
+            conn.execute("DELETE FROM subscription_devices WHERE email = ?", (email,))
+            for dev in devices:
+                conn.execute("""
+                    INSERT INTO subscription_devices
+                        (email, device_number, username, password, server_region)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (email, dev["device_number"], dev["username"], dev["password"], region))
+
+
+def get_devices_for_email(email: str) -> list[dict]:
+    """Return all per-device credentials for a subscriber."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM subscription_devices WHERE email = ? ORDER BY device_number ASC",
+            (email,)
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 def update_subscription_status(email: str, status: str):

@@ -5,7 +5,7 @@ Creates and removes VPN accounts. Generates .mobileconfig profiles.
 Called by the webhook server after payment confirmation.
 """
 
-import os, re, secrets, string, subprocess, base64, uuid, logging
+import os, re, secrets, string, subprocess, base64, uuid, logging, json
 from pathlib import Path
 from datetime import datetime, timedelta
 
@@ -16,23 +16,45 @@ CA_CERT_PATH  = os.environ.get("CA_CERT_PATH",       "/etc/ipsec.d/cacerts/caCer
 SERVER_ADDR   = os.environ.get("VPN_SERVER_ADDR",     "vpn.yourdomain.com")
 MAX_USERS     = int(os.environ.get("MAX_USERS",       "80"))
 
+# Load servers list from servers.json (same directory as this file)
+_SERVERS_PATH = os.path.join(os.path.dirname(__file__), "servers.json")
+try:
+    with open(_SERVERS_PATH) as _f:
+        SERVERS = json.load(_f)
+except Exception:
+    SERVERS = []
+
+SERVERS_BY_REGION = {s["region"]: s for s in SERVERS if s.get("active")}
+
 # ── Plans ─────────────────────────────────────────────────────────────────────
 
 PLANS = [
-    {"name": "Basic",    "min_amount": 1500,  "max_amount": 3999,  "duration_days": 30,  "devices": 1},
-    {"name": "Pro",      "min_amount": 4000,  "max_amount": 9999,  "duration_days": 30,  "devices": 5},
-    {"name": "Business", "min_amount": 10000, "max_amount": 999999,"duration_days": 30,  "devices": 999},
+    {"name": "Basic",    "min_amount": 1,     "max_amount": 6999,   "duration_days": 30, "devices": 1},
+    {"name": "Pro",      "min_amount": 7000,  "max_amount": 18999,  "duration_days": 30, "devices": 5},
+    {"name": "Business", "min_amount": 19000, "max_amount": 999999, "duration_days": 30, "devices": 10},
 ]
 DEFAULT_PLAN = {"name": "Pro", "duration_days": 30, "devices": 5}
 
 
 def get_plan_for_amount(amount_ngn: float, plan_code: str = "") -> dict:
-    """Match payment amount to a subscription plan."""
+    """Match plan by code (primary) or payment amount (fallback)."""
+    if plan_code:
+        for plan in PLANS:
+            if plan["name"].lower() == plan_code.lower():
+                return plan
     for plan in PLANS:
         if plan["min_amount"] <= amount_ngn <= plan["max_amount"]:
             return plan
-    log.warning(f"No plan matched for ₦{amount_ngn:.0f} — using default")
+    log.warning(f"No plan matched for ₦{amount_ngn:.0f} / code='{plan_code}' — using default")
     return DEFAULT_PLAN
+
+
+def get_server_host(region: str) -> str:
+    """Resolve a region code to a VPN server hostname/IP."""
+    server = SERVERS_BY_REGION.get(region)
+    if server:
+        return server["host"]
+    return SERVER_ADDR  # fallback to env var
 
 
 # ── Capacity check ────────────────────────────────────────────────────────────
@@ -70,11 +92,11 @@ def email_to_username(email: str) -> str:
 
 # ── Core provisioning ─────────────────────────────────────────────────────────
 
-def provision_user(email: str, plan: dict) -> dict:
+def provision_user(email: str, plan: dict, region: str = "us") -> dict:
     """
-    Create a VPN user account.
-    Returns dict with username, password, server, expiry, mobileconfig_b64.
-    Raises RuntimeError if server is full.
+    Provision N VPN accounts (one per device slot in the plan).
+    Returns a dict with backward-compat top-level fields and a `devices` list.
+    Raises RuntimeError if the server is at capacity.
     """
     if is_server_full():
         raise RuntimeError(
@@ -82,30 +104,45 @@ def provision_user(email: str, plan: dict) -> dict:
             "Cannot provision new account."
         )
 
-    username = email_to_username(email)
-    password = generate_password()
-    expiry   = datetime.utcnow() + timedelta(days=plan["duration_days"])
+    n_devices   = min(plan.get("devices", 1), 10)  # cap Business at 10
+    server_host = get_server_host(region)
+    expiry      = datetime.utcnow() + timedelta(days=plan["duration_days"])
 
-    # Write to ipsec.secrets
-    _add_ipsec_user(username, password)
+    devices = []
+    for i in range(n_devices):
+        username = email_to_username(email)
+        password = generate_password()
+        _add_ipsec_user(username, password)
+        profile_b64 = generate_mobileconfig(username, password, server_host)
+        devices.append({
+            "device_number": i + 1,
+            "username":      username,
+            "password":      password,
+            "server":        server_host,
+            "mobileconfig_b64": profile_b64,
+        })
 
-    # Reload secrets live (no restart needed)
+    # Single secrets reload after all users are written
     _reload_ipsec_secrets()
 
-    # Generate .mobileconfig profile
-    profile_b64 = generate_mobileconfig(username, password, SERVER_ADDR)
-
-    log.info(f"Provisioned: {username} | plan={plan['name']} | expiry={expiry.date()}")
+    log.info(
+        f"Provisioned {n_devices} device(s) for {email} "
+        f"| plan={plan['name']} | region={region} | expiry={expiry.date()}"
+    )
 
     return {
-        "username":         username,
-        "password":         password,
-        "server":           SERVER_ADDR,
+        # Backward-compat top-level fields (Device 1)
+        "username":         devices[0]["username"],
+        "password":         devices[0]["password"],
+        "server":           server_host,
         "plan":             plan["name"],
+        "region":           region,
         "expiry":           expiry.isoformat(),
         "expiry_display":   expiry.strftime("%B %d, %Y"),
-        "mobileconfig_b64": profile_b64,
+        "mobileconfig_b64": devices[0]["mobileconfig_b64"],
         "email":            email,
+        # Full device list
+        "devices":          devices,
     }
 
 
