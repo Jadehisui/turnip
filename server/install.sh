@@ -49,6 +49,8 @@ success "System updated"
 
 # ── 2. Install packages ───────────────────────────────────────────────────────
 info "Installing StrongSwan and dependencies..."
+# Remove iptables-persistent first — it conflicts with ufw on Ubuntu 22.04+
+apt-get remove -y -qq iptables-persistent 2>/dev/null || true
 apt-get install -y -qq \
     strongswan \
     strongswan-pki \
@@ -57,7 +59,6 @@ apt-get install -y -qq \
     libstrongswan-extra-plugins \
     libtss2-tcti-tabrmd0 \
     iptables \
-    iptables-persistent \
     ufw \
     net-tools \
     curl \
@@ -254,19 +255,35 @@ iptables -A INPUT -p udp --dport 4500 -j ACCEPT
 iptables -A INPUT -p esp -j ACCEPT
 iptables -A INPUT -p ah -j ACCEPT
 
-# Save rules
-netfilter-persistent save > /dev/null 2>&1
+# Persist rules across reboots without iptables-persistent
+mkdir -p /etc/iptables
+iptables-save > /etc/iptables/rules.v4
+# Restore on boot via a simple systemd unit
+cat > /etc/systemd/system/iptables-restore.service << 'UNIT'
+[Unit]
+Description=Restore iptables rules
+Before=network-pre.target
+DefaultDependencies=no
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/iptables-restore /etc/iptables/rules.v4
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl enable iptables-restore.service > /dev/null 2>&1
 success "iptables rules applied and saved"
 
-# ── 10. UFW (if active) ───────────────────────────────────────────────────────
-if ufw status | grep -q "Status: active"; then
-    warn "UFW is active — adding VPN rules..."
-    ufw allow 500/udp
-    ufw allow 4500/udp
-    ufw allow OpenSSH
-    ufw --force enable
-    success "UFW rules added"
-fi
+# ── 10. UFW ──────────────────────────────────────────────────────────────────
+info "Configuring UFW firewall..."
+# Ensure OpenSSH is allowed before enabling to avoid lockout
+ufw allow OpenSSH
+ufw allow 500/udp
+ufw allow 4500/udp
+ufw --force enable
+success "UFW rules applied"
 
 # ── 11. Start StrongSwan ──────────────────────────────────────────────────────
 info "Starting StrongSwan..."
