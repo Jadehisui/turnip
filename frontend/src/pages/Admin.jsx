@@ -171,7 +171,7 @@ const Admin = () => {
                     className="login-card"
                 >
                     <div className="login-logo">
-                        Secure<span>Fast</span>
+                        Turnip<span>VPN</span>
                     </div>
                     <div className="login-sub">
                         Admin Panel — Enter your API token
@@ -264,7 +264,7 @@ const Admin = () => {
             {/* Nav */}
             <nav className="admin-nav">
                 <div className="nav-left">
-                    <div className="logo">Secure<span>Fast</span> <small>Admin</small></div>
+                    <div className="logo">Turnip<span>VPN</span> <small>Admin</small></div>
                     {status && (
                         <div className={`status-indicator ${status.vpn_running ? 'running' : 'offline'}`}>
                             <div className="dot" />

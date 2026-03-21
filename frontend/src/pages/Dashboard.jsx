@@ -2,14 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
     User, Mail, Calendar, Hash, Key, ExternalLink,
-    Download, RefreshCw, Wallet, ShieldCheck, AlertCircle, Copy, Check
+    Download, RefreshCw, ShieldCheck, AlertCircle, Copy, Check
 } from 'lucide-react';
-import { ethers } from 'ethers';
 
 const Dashboard = () => {
     const [sub, setSub] = useState(null);
     const [copied, setCopied] = useState(null);
-    const [isLinking, setIsLinking] = useState(false);
 
     useEffect(() => {
         const fetchStatus = async () => {
@@ -33,43 +31,6 @@ const Dashboard = () => {
         navigator.clipboard.writeText(text);
         setCopied(id);
         setTimeout(() => setCopied(null), 2000);
-    };
-
-    const handleLinkWallet = async () => {
-        if (!window.ethereum) return alert('Please install MetaMask');
-        setIsLinking(true);
-        try {
-            const provider = new ethers.BrowserProvider(window.ethereum);
-            await provider.send("eth_requestAccounts", []);
-            const signer = provider.getSigner();
-            const address = await signer.getAddress();
-
-            const r1 = await fetch('/api/auth/nonce');
-            const { nonce } = await r1.json();
-
-            const domain = window.location.host;
-            const origin = window.location.origin;
-            const message = `${domain} wants you to sign in with your Ethereum account:\n${address}\n\nLink wallet to Turnip VPN account\n\nURI: ${origin}\nVersion: 1\nChain ID: 1\nNonce: ${nonce}\nIssued At: ${new Date().toISOString()}`;
-
-            const signature = await signer.signMessage(message);
-
-            const r2 = await fetch('/api/auth/wallet', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message, signature })
-            });
-
-            const d2 = await r2.json();
-            if (d2.ok) {
-                setSub({ ...sub, wallet_address: address });
-            } else {
-                alert(d2.error || 'Linking failed');
-            }
-        } catch (err) {
-            console.error(err);
-        } finally {
-            setIsLinking(false);
-        }
     };
 
     if (!sub) return <div className="loading">Loading...</div>;
@@ -109,55 +70,45 @@ const Dashboard = () => {
                                 <span className="m-val mono">{sub.expires_at.split(' ')[0]}</span>
                             </div>
                         </div>
-                        {!sub.wallet_address && (
-                            <div className="wallet-promo">
-                                <div className="promo-text">
-                                    <strong>Link your wallet</strong>
-                                    <span>Enable one-tap login and crypto payments.</span>
-                                </div>
-                                <button className="btn btn-wallet-dash" onClick={handleLinkWallet} disabled={isLinking}>
-                                    {isLinking ? 'Linking...' : <><Wallet size={16} /> Link Wallet</>}
-                                </button>
-                            </div>
-                        )}
-                        {sub.wallet_address && (
-                            <div className="wallet-linked">
-                                <ShieldCheck size={18} color="var(--accent)" />
-                                <span>Linked: <span className="mono">{sub.wallet_address.substring(0, 6)}...{sub.wallet_address.substring(38)}</span></span>
-                            </div>
-                        )}
+
                     </section>
 
                     {/* Credentials */}
                     <section className="dash-card" style={{ marginTop: '20px' }}>
                         <h3>VPN Credentials</h3>
-                        <div className="cred-item">
-                            <div className="cred-lbl">IKEv2 Username</div>
-                            <div className="cred-box">
-                                <code className="mono">{sub.username}</code>
-                                <button className="copy-btn" onClick={() => copyToClipboard(sub.username, 'user')}>
-                                    {copied === 'user' ? <Check size={14} /> : <Copy size={14} />}
-                                </button>
+                        <p className="small-text" style={{ marginTop: '-1rem', marginBottom: '1.5rem' }}>
+                            Each device gets its own unique profile. Download and install on each device separately.
+                        </p>
+                        {(sub.devices || [{ device_number: 1, username: sub.username, password: sub.password }]).map(dev => (
+                            <div key={dev.device_number} className="device-block">
+                                <div className="device-block-header">Device {dev.device_number}</div>
+                                <div className="cred-item">
+                                    <div className="cred-lbl">IKEv2 Username</div>
+                                    <div className="cred-box">
+                                        <code className="mono">{dev.username}</code>
+                                        <button className="copy-btn" onClick={() => copyToClipboard(dev.username, `user_${dev.device_number}`)}>
+                                            {copied === `user_${dev.device_number}` ? <Check size={14} /> : <Copy size={14} />}
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="cred-item">
+                                    <div className="cred-lbl">IKEv2 Password</div>
+                                    <div className="cred-box">
+                                        <code className="mono">{dev.password}</code>
+                                        <button className="copy-btn" onClick={() => copyToClipboard(dev.password, `pass_${dev.device_number}`)}>
+                                            {copied === `pass_${dev.device_number}` ? <Check size={14} /> : <Copy size={14} />}
+                                        </button>
+                                    </div>
+                                </div>
+                                <a
+                                    href={`/download/profile?device=${dev.device_number}`}
+                                    className="btn btn-action"
+                                    style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none', marginTop: 8 }}
+                                >
+                                    <Download size={14} /> Download Profile — Device {dev.device_number}
+                                </a>
                             </div>
-                        </div>
-                        <div className="cred-item">
-                            <div className="cred-lbl">IKEv2 Password</div>
-                            <div className="cred-box">
-                                <code className="mono">{sub.password}</code>
-                                <button className="copy-btn" onClick={() => copyToClipboard('ACTUAL_PASSWORD_HERE', 'pass')}>
-                                    {copied === 'pass' ? <Check size={14} /> : <Copy size={14} />}
-                                </button>
-                            </div>
-                        </div>
-                        <div className="cred-item">
-                            <div className="cred-lbl">Server Address</div>
-                            <div className="cred-box">
-                                <code className="mono">vpn.securefast.net</code>
-                                <button className="copy-btn" onClick={() => copyToClipboard('vpn.securefast.net', 'host')}>
-                                    {copied === 'host' ? <Check size={14} /> : <Copy size={14} />}
-                                </button>
-                            </div>
-                        </div>
+                        ))}
                     </section>
                 </div>
 
@@ -165,14 +116,8 @@ const Dashboard = () => {
                     {/* Quick Actions */}
                     <section className="dash-card">
                         <h3>Downloads</h3>
-                        <p className="small-text">One-tap profiles for instant configuration.</p>
+                        <p className="small-text">Install CA certificate once to trust all Turnip VPN profiles.</p>
                         <div className="action-buttons">
-                            <button className="btn btn-action">
-                                <Download size={16} /> iOS Profile (.mobileconfig)
-                            </button>
-                            <button className="btn btn-action">
-                                <Download size={16} /> macOS Profile (.mobileconfig)
-                            </button>
                             <button className="btn btn-action">
                                 <ShieldCheck size={16} /> Download CA Certificate
                             </button>
@@ -212,16 +157,9 @@ const Dashboard = () => {
         .m-label { font-size: 11px; color: var(--text3); display: flex; align-items: center; gap: 5px; text-transform: uppercase; font-weight: 700; }
         .m-val { font-size: 15px; font-weight: 600; color: var(--text); }
         
-        .wallet-promo { background: var(--adim); border: 1px solid var(--border2); border-radius: 12px; padding: 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 15px; }
-        .promo-text { display: flex; flex-direction: column; }
-        .promo-text strong { font-size: 14px; color: var(--text); }
-        .promo-text span { font-size: 12px; color: var(--text2); }
-        .btn-wallet-dash { background: var(--blue); color: white; padding: 10px 18px; font-size: 13px; font-weight: 700; border-radius: 8px; border: none; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: all 0.2s; }
-        .btn-wallet-dash:hover { opacity: 0.9; transform: translateY(-1px); }
-        .btn-wallet-dash:disabled { opacity: 0.5; cursor: not-allowed; }
-        
-        .wallet-linked { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--accent); background: rgba(0,200,150,0.05); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border2); }
-
+        .device-block { background: var(--bg3); border: 1px solid var(--border); border-radius: 14px; padding: 1.25rem; margin-bottom: 1rem; }
+        .device-block:last-child { margin-bottom: 0; }
+        .device-block-header { font-size: 11px; font-weight: 800; color: var(--accent); text-transform: uppercase; letter-spacing: .1em; font-family: var(--mono); margin-bottom: 1rem; }
         .cred-item { margin-bottom: 1.25rem; }
         .cred-lbl { font-size: 12px; color: var(--text3); margin-bottom: 6px; font-weight: 600; }
         .cred-box { background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; }

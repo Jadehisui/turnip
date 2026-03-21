@@ -36,7 +36,7 @@ NGN_TO_USD_RATE = float(os.environ.get("NGN_TO_USD_RATE", "1600"))
 
 # ── Invoice creation ──────────────────────────────────────────────────────────
 
-def create_invoice(email: str, amount_ngn: float, plan_code: str, site_url: str) -> dict:
+def create_invoice(email: str, amount_ngn: float, plan_code: str, site_url: str, region: str = "us") -> dict:
     """
     Create a NOWPayments hosted invoice.
     Returns the full API response dict which contains `invoice_url`.
@@ -57,7 +57,7 @@ def create_invoice(email: str, amount_ngn: float, plan_code: str, site_url: str)
             "price_amount":      amount_usd,
             "price_currency":    "usd",
             "pay_currency":      "usdtbsc",          # default; user can switch on checkout
-            "order_id":          f"{email}::{plan_code}::{int(amount_ngn)}",
+            "order_id":          f"{email}::{plan_code}::{int(amount_ngn)}::{region}",
             "order_description": f"Turnip VPN — {plan_code.title()} Plan",
             "ipn_callback_url":  f"{site_url}/webhook/nowpayments",
             "success_url":       f"{site_url}/login",
@@ -91,7 +91,7 @@ def verify_nowpayments_signature(payload: bytes, sig_header: str) -> bool:
 
 # ── Payment fulfilment ────────────────────────────────────────────────────────
 
-def handle_successful_payment(email: str, amount_ngn: float, reference: str):
+def handle_successful_payment(email: str, amount_ngn: float, reference: str, order_id: str = ""):
     """Provision a VPN account after a confirmed crypto payment."""
     log.info(f"Crypto payment confirmed: {email} | ₦{amount_ngn:.0f} | ref={reference}")
 
@@ -99,8 +99,13 @@ def handle_successful_payment(email: str, amount_ngn: float, reference: str):
         log.warning(f"Duplicate crypto webhook ignored: ref={reference}")
         return
 
-    plan  = get_plan_for_amount(amount_ngn)
-    creds = provision_user(email, plan)
+    # Parse plan_code and region from order_id (format: email::plan_code::amount::region)
+    parts      = (order_id or "").split("::")
+    plan_code  = parts[1] if len(parts) > 1 else ""
+    region     = parts[3] if len(parts) > 3 else "us"
+
+    plan  = get_plan_for_amount(amount_ngn, plan_code)
+    creds = provision_user(email, plan, region)
 
     record_payment(
         email=email,
@@ -110,6 +115,8 @@ def handle_successful_payment(email: str, amount_ngn: float, reference: str):
         duration_days=plan["duration_days"],
         username=creds["username"],
         password=creds["password"],
+        region=region,
+        devices=creds["devices"],
     )
 
     send_welcome_email(email, creds, plan)
