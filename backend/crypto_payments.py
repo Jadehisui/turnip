@@ -102,7 +102,7 @@ def handle_successful_payment(email: str, amount_ngn: float, reference: str, ord
     # Parse plan_code and region from order_id (format: email::plan_code::amount::region)
     parts      = (order_id or "").split("::")
     plan_code  = parts[1] if len(parts) > 1 else ""
-    region     = parts[3] if len(parts) > 3 else "us"
+    region     = parts[3] if len(parts) > 3 else "eu"
 
     plan  = get_plan_for_amount(amount_ngn, plan_code)
     creds = provision_user(email, plan, region)
@@ -115,7 +115,7 @@ def handle_successful_payment(email: str, amount_ngn: float, reference: str, ord
         duration_days=plan["duration_days"],
         username=creds["username"],
         password=creds["password"],
-        region=region,
+        region=creds["region"],
         devices=creds["devices"],
     )
 

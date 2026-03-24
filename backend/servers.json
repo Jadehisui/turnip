@@ -1,38 +1,82 @@
 [
   {
-    "id":      "nl-01",
-    "name":    "NL-01",
-    "country": "Netherlands",
-    "flag":    "🇳🇱",
-    "host":    "YOUR_NL_SERVER_IP",
-    "region":  "nl",
-    "active":  true
+    "id":        "nl-01",
+    "name":      "Netherlands",
+    "country":   "Netherlands",
+    "flag":      "🇳🇱",
+    "host":      "141.227.149.19",
+    "region":    "nl",
+    "continent": "eu",
+    "active":    true
   },
   {
-    "id":      "us-01",
-    "name":    "US-01",
-    "country": "United States",
-    "flag":    "🇺🇸",
-    "host":    "YOUR_US_SERVER_IP",
-    "region":  "us",
-    "active":  true
+    "id":        "de-01",
+    "name":      "Germany",
+    "country":   "Germany",
+    "flag":      "🇩🇪",
+    "host":      "YOUR_DE_SERVER_IP",
+    "region":    "de",
+    "continent": "eu",
+    "active":    false
   },
   {
-    "id":      "ca-01",
-    "name":    "CA-01",
-    "country": "Canada",
-    "flag":    "🇨🇦",
-    "host":    "YOUR_CA_SERVER_IP",
-    "region":  "ca",
-    "active":  true
+    "id":        "uk-01",
+    "name":      "United Kingdom",
+    "country":   "United Kingdom",
+    "flag":      "🇬🇧",
+    "host":      "YOUR_UK_SERVER_IP",
+    "region":    "uk",
+    "continent": "eu",
+    "active":    false
   },
   {
-    "id":      "sg-01",
-    "name":    "SG-01",
-    "country": "Singapore",
-    "flag":    "🇸🇬",
-    "host":    "YOUR_SG_SERVER_IP",
-    "region":  "sg",
-    "active":  true
+    "id":        "us-01",
+    "name":      "United States",
+    "country":   "United States",
+    "flag":      "🇺🇸",
+    "host":      "YOUR_US_SERVER_IP",
+    "region":    "us",
+    "continent": "na",
+    "active":    false
+  },
+  {
+    "id":        "ca-01",
+    "name":      "Canada",
+    "country":   "Canada",
+    "flag":      "🇨🇦",
+    "host":      "YOUR_CA_SERVER_IP",
+    "region":    "ca",
+    "continent": "na",
+    "active":    false
+  },
+  {
+    "id":        "sg-01",
+    "name":      "Singapore",
+    "country":   "Singapore",
+    "flag":      "🇸🇬",
+    "host":      "YOUR_SG_SERVER_IP",
+    "region":    "sg",
+    "continent": "as",
+    "active":    false
+  },
+  {
+    "id":        "jp-01",
+    "name":      "Japan",
+    "country":   "Japan",
+    "flag":      "🇯🇵",
+    "host":      "YOUR_JP_SERVER_IP",
+    "region":    "jp",
+    "continent": "as",
+    "active":    false
+  },
+  {
+    "id":        "in-01",
+    "name":      "India",
+    "country":   "India",
+    "flag":      "🇮🇳",
+    "host":      "YOUR_IN_SERVER_IP",
+    "region":    "in",
+    "continent": "as",
+    "active":    false
   }
 ]

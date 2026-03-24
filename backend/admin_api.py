@@ -18,6 +18,8 @@ load_dotenv()
 
 from multiserver import (
     load_servers,
+    get_best_server,
+    get_fleet_status,
     _ssh_run,
     _ssh_read_file,
     SECRETS_FILE,
@@ -190,11 +192,15 @@ def list_users():
 @app.route("/api/users", methods=["POST"])
 def add_user():
     _require_auth()
-    host = _primary_host()
 
     data     = request.get_json(silent=True) or {}
     username = (data.get("username") or "").strip()
     password = (data.get("password") or "").strip()
+
+    # Route to the least-loaded server; fall back to primary if all unreachable
+    servers = load_servers()
+    best = get_best_server(servers)
+    host = best.host if best else _primary_host()
 
     if not username:
         return jsonify({"error": "username required"}), 400
@@ -223,6 +229,16 @@ def delete_user(username):
     if ok:
         return jsonify({"ok": True})
     return jsonify({"error": "Failed to remove user from VPN server"}), 500
+
+
+@app.route("/api/servers")
+def list_servers():
+    _require_auth()
+    try:
+        fleet = get_fleet_status()
+        return jsonify({"servers": fleet})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/vpn/restart", methods=["POST"])

@@ -9,6 +9,7 @@ const Admin = () => {
     const [loginError, setLoginError] = useState('');
     const [status, setStatus] = useState(null);
     const [users, setUsers] = useState([]);
+    const [servers, setServers] = useState([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [addUserForm, setAddUserForm] = useState({ username: '', password: '' });
     const [addMsg, setAddMsg] = useState({ text: '', type: '' });
@@ -41,9 +42,10 @@ const Admin = () => {
     const refresh = async () => {
         if (!token) return;
         try {
-            const [statusRes, usersRes] = await Promise.all([
+            const [statusRes, usersRes, serversRes] = await Promise.all([
                 apiFetch('/api/status'),
                 apiFetch('/api/users'),
+                apiFetch('/api/servers'),
             ]);
 
             if (!statusRes.ok || !usersRes.ok) {
@@ -55,6 +57,11 @@ const Admin = () => {
 
             setStatus(statusData);
             setUsers(usersData.users || []);
+
+            if (serversRes.ok) {
+                const serversData = await serversRes.json();
+                setServers(serversData.servers || []);
+            }
         } catch (error) {
             console.error('Refresh Error:', error);
             if (isLoggedIn) {
@@ -324,6 +331,50 @@ const Admin = () => {
                     </div>
                 </div>
 
+                {/* Server Fleet */}
+                {servers.length > 0 && (
+                    <div className="fleet-card">
+                        <div className="card-header">
+                            <h3>Server Fleet</h3>
+                            <div className="badge">{servers.filter(s => s.reachable).length}/{servers.length} online</div>
+                        </div>
+                        <div className="fleet-grid">
+                            {servers.map((srv) => {
+                                const cap = Math.round((srv.users / (srv.slots_free + srv.users || 1)) * 100);
+                                const color = !srv.reachable ? 'var(--red)' : cap >= 90 ? 'var(--red)' : cap >= 70 ? 'var(--amber)' : 'var(--accent)';
+                                return (
+                                    <div key={srv.id} className={`fleet-item ${!srv.reachable ? 'offline' : ''}`}>
+                                        <div className="fleet-top">
+                                            <span className="fleet-flag">{srv.flag}</span>
+                                            <span className="fleet-name">{srv.name}</span>
+                                            <span className="fleet-status" style={{ color }}>
+                                                {!srv.reachable ? 'OFFLINE' : srv.slots_free === 0 ? 'FULL' : 'OK'}
+                                            </span>
+                                        </div>
+                                        <div className="fleet-bars">
+                                            <div className="fleet-bar-row">
+                                                <span>Load</span>
+                                                <div className="res-bg"><motion.div className="res-fill" initial={{ width: 0 }} animate={{ width: `${cap}%` }} style={{ background: color }} /></div>
+                                                <span className="fleet-pct">{cap}%</span>
+                                            </div>
+                                            <div className="fleet-bar-row">
+                                                <span>CPU</span>
+                                                <div className="res-bg"><motion.div className="res-fill" initial={{ width: 0 }} animate={{ width: `${srv.cpu || 0}%` }} style={{ background: 'var(--blue)' }} /></div>
+                                                <span className="fleet-pct">{srv.cpu || 0}%</span>
+                                            </div>
+                                        </div>
+                                        <div className="fleet-meta">
+                                            <span>{srv.users} users</span>
+                                            <span>{srv.slots_free} free</span>
+                                            <span>{srv.tunnels} tunnels</span>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+
                 <div className="main-grid">
                     {/* User Management */}
                     <div className="users-card">
@@ -524,6 +575,19 @@ const Admin = () => {
         .custom-scrollbar::-webkit-scrollbar { width: 3px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: var(--surf); border-radius: 10px; }
+
+        .fleet-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 16px; padding: 1.5rem; margin-bottom: 1.5rem; }
+        .fleet-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; }
+        .fleet-item { background: var(--bg3); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; }
+        .fleet-item.offline { opacity: 0.5; }
+        .fleet-top { display: flex; align-items: center; gap: 8px; margin-bottom: 1rem; }
+        .fleet-flag { font-size: 18px; }
+        .fleet-name { flex: 1; font-size: 13px; font-weight: 700; }
+        .fleet-status { font-family: var(--mono); font-size: 9px; font-weight: 800; letter-spacing: .05em; }
+        .fleet-bars { display: flex; flex-direction: column; gap: 8px; margin-bottom: 1rem; }
+        .fleet-bar-row { display: grid; grid-template-columns: 28px 1fr 32px; align-items: center; gap: 8px; font-family: var(--mono); font-size: 9px; color: var(--text3); }
+        .fleet-pct { text-align: right; font-weight: 700; }
+        .fleet-meta { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 9px; color: var(--text3); padding-top: 0.75rem; border-top: 1px solid var(--border); }
       `}</style>
         </div>
     );

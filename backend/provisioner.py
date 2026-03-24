@@ -26,6 +26,9 @@ except Exception:
 
 SERVERS_BY_REGION = {s["region"]: s for s in SERVERS if s.get("active")}
 
+# Continent codes that trigger auto-selection of best server in that region
+CONTINENT_CODES = {"eu", "na", "as"}
+
 # ── Plans ─────────────────────────────────────────────────────────────────────
 
 PLANS = [
@@ -50,11 +53,28 @@ def get_plan_for_amount(amount_ngn: float, plan_code: str = "") -> dict:
 
 
 def get_server_host(region: str) -> str:
-    """Resolve a region code to a VPN server hostname/IP."""
+    """Resolve a specific server region code (nl/us/sg...) to a VPN server host."""
     server = SERVERS_BY_REGION.get(region)
     if server:
         return server["host"]
     return SERVER_ADDR  # fallback to env var
+
+
+def get_server_for_continent(continent: str) -> dict:
+    """
+    Pick the best active server in a continent.
+    Returns {"host": ..., "region": ...}.
+    Falls back to any active server if the continent has none.
+    """
+    from multiserver import get_best_server_for_continent
+    best = get_best_server_for_continent(continent)
+    if best:
+        return {"host": best.host, "region": best.region}
+    # Fallback: first active server regardless of continent
+    for s in SERVERS:
+        if s.get("active"):
+            return {"host": s["host"], "region": s["region"]}
+    return {"host": SERVER_ADDR, "region": continent}
 
 
 # ── Capacity check ────────────────────────────────────────────────────────────
@@ -92,9 +112,11 @@ def email_to_username(email: str) -> str:
 
 # ── Core provisioning ─────────────────────────────────────────────────────────
 
-def provision_user(email: str, plan: dict, region: str = "us") -> dict:
+def provision_user(email: str, plan: dict, region: str = "eu") -> dict:
     """
     Provision N VPN accounts (one per device slot in the plan).
+    `region` can be a continent code (eu/na/as) — system picks best server —
+    or a specific server region code (nl/us/sg) for direct assignment.
     Returns a dict with backward-compat top-level fields and a `devices` list.
     Raises RuntimeError if the server is at capacity.
     """
@@ -104,9 +126,17 @@ def provision_user(email: str, plan: dict, region: str = "us") -> dict:
             "Cannot provision new account."
         )
 
-    n_devices   = min(plan.get("devices", 1), 10)  # cap Business at 10
-    server_host = get_server_host(region)
-    expiry      = datetime.utcnow() + timedelta(days=plan["duration_days"])
+    # Resolve continent → best specific server
+    if region in CONTINENT_CODES:
+        srv = get_server_for_continent(region)
+        server_host     = srv["host"]
+        resolved_region = srv["region"]
+    else:
+        server_host     = get_server_host(region)
+        resolved_region = region
+
+    n_devices = min(plan.get("devices", 1), 10)  # cap Business at 10
+    expiry    = datetime.utcnow() + timedelta(days=plan["duration_days"])
 
     devices = []
     for i in range(n_devices):
@@ -127,7 +157,7 @@ def provision_user(email: str, plan: dict, region: str = "us") -> dict:
 
     log.info(
         f"Provisioned {n_devices} device(s) for {email} "
-        f"| plan={plan['name']} | region={region} | expiry={expiry.date()}"
+        f"| plan={plan['name']} | region={resolved_region} | expiry={expiry.date()}"
     )
 
     return {
@@ -136,7 +166,7 @@ def provision_user(email: str, plan: dict, region: str = "us") -> dict:
         "password":         devices[0]["password"],
         "server":           server_host,
         "plan":             plan["name"],
-        "region":           region,
+        "region":           resolved_region,   # actual server region, not continent code
         "expiry":           expiry.isoformat(),
         "expiry_display":   expiry.strftime("%B %d, %Y"),
         "mobileconfig_b64": devices[0]["mobileconfig_b64"],

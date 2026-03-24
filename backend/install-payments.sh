@@ -60,9 +60,9 @@ sleep 2
 systemctl is-active --quiet turnip-payments && success "Payment service running on :8766" || error "Service failed — check: journalctl -u turnip-payments -n 30"
 
 # ── Open firewall port (local only — don't expose to internet) ────────────────
-# Port 8766 is Paystack-facing. Paystack sends webhooks TO your server.
+# Port 8766 receives webhooks from Lemon Squeezy and NOWPayments.
 # You need a public HTTPS URL. Use nginx + Let's Encrypt as reverse proxy.
-info "Firewall: port 8766 kept internal (use nginx reverse proxy for Paystack)"
+info "Firewall: port 8766 kept internal (proxied via nginx)"
 
 # ── Daily expiry cron ─────────────────────────────────────────────────────────
 info "Installing daily expiry cron..."
@@ -81,17 +81,23 @@ echo -e "${BOLD}${GREEN}╔═════════════════�
 echo -e "${BOLD}${GREEN}║            PAYMENT BACKEND SETUP COMPLETE ✓              ║${NC}"
 echo -e "${BOLD}${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "${BOLD}Webhook URL (register in Paystack dashboard):${NC}"
-echo -e "  ${CYAN}https://YOUR_DOMAIN/webhook/paystack${NC}"
+echo -e "${BOLD}Webhook URLs (register in dashboards):${NC}"
+echo -e "  Lemon Squeezy : ${CYAN}https://YOUR_DOMAIN/webhook/lemonsqueezy${NC}"
+echo -e "  NOWPayments   : ${CYAN}https://YOUR_DOMAIN/webhook/nowpayments${NC}"
 echo ""
 echo -e "${BOLD}Next — set up nginx reverse proxy:${NC}"
 echo -e "  apt install nginx certbot python3-certbot-nginx"
 echo -e "  certbot --nginx -d YOUR_DOMAIN"
-echo -e "  # Then proxy /webhook/paystack → http://127.0.0.1:8766"
 echo ""
-echo -e "${BOLD}Register webhook in Paystack:${NC}"
-echo -e "  Dashboard → Settings → API Keys & Webhooks"
-echo -e "  Webhook URL: https://YOUR_DOMAIN/webhook/paystack"
+echo -e "${BOLD}Register Lemon Squeezy webhook:${NC}"
+echo -e "  Dashboard → Settings → Webhooks → Add endpoint"
+echo -e "  URL: https://YOUR_DOMAIN/webhook/lemonsqueezy"
+echo -e "  Events: order_created, subscription_created, subscription_payment_success,"
+echo -e "          subscription_cancelled, subscription_expired"
+echo ""
+echo -e "${BOLD}Register NOWPayments IPN:${NC}"
+echo -e "  Dashboard → Store Settings → IPN Settings"
+echo -e "  Callback URL: https://YOUR_DOMAIN/webhook/nowpayments"
 echo ""
 echo -e "${BOLD}Test it:${NC}"
 echo -e "  curl http://127.0.0.1:8766/health"

@@ -68,10 +68,15 @@ def _send_smtp(to: str, subject: str, html: str, text: str,
     part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
     msg.attach(part)
 
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-        server.starttls()
-        server.login(SMTP_USER, SMTP_PASS)
-        server.sendmail(FROM_EMAIL, to, msg.as_string())
+    if SMTP_PORT == 465:
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
+            server.login(SMTP_USER, SMTP_PASS)
+            server.sendmail(FROM_EMAIL, to, msg.as_string())
+    else:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASS)
+            server.sendmail(FROM_EMAIL, to, msg.as_string())
 
 
 # ── SendGrid sender ───────────────────────────────────────────────────────────
