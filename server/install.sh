@@ -286,7 +286,11 @@ success "UFW rules applied"
 # ── 11. Start StrongSwan ──────────────────────────────────────────────────────
 info "Starting StrongSwan..."
 systemctl enable strongswan-starter > /dev/null 2>&1
-systemctl restart strongswan-starter
+# Clear stale PID files that block restart on re-runs
+systemctl stop strongswan-starter 2>/dev/null || true
+rm -f /var/run/charon.pid /var/run/starter.charon.pid /var/lock/subsys/ipsec
+sleep 1
+systemctl start strongswan-starter
 sleep 2
 
 if systemctl is-active --quiet strongswan-starter; then
