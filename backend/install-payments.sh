@@ -26,7 +26,7 @@ success "Dependencies installed"
 # ── Deploy to /opt/turnip ─────────────────────────────────────────────
 info "Deploying payment backend..."
 mkdir -p /opt/turnip
-cp webhook.py provisioner.py emailer.py database.py cron_expire.py crypto_payments.py /opt/turnip/
+cp webhook.py provisioner.py emailer.py database.py cron_expire.py crypto_payments.py multiserver.py servers.json /opt/turnip/
 cp .env /opt/turnip/.env
 chmod 600 /opt/turnip/.env
 success "Files deployed to /opt/turnip/"
@@ -43,7 +43,7 @@ Type=simple
 User=root
 WorkingDirectory=/opt/turnip
 EnvironmentFile=/opt/turnip/.env
-ExecStart=/usr/bin/gunicorn -w 2 -b 0.0.0.0:8766 webhook:app
+ExecStart=/usr/bin/python3 -m gunicorn -w 2 -b 0.0.0.0:8766 webhook:app
 Restart=always
 RestartSec=5
 StandardOutput=append:/var/log/turnip-payments.log
