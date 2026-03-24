@@ -119,7 +119,7 @@ cat > "${IPSEC_CONF}" << EOF
 
 config setup
     charondebug="ike 1, knl 1, cfg 0"
-    uniqueids=no
+    uniqueids=yes
 
 conn %default
     ikelifetime=60m
@@ -127,11 +127,11 @@ conn %default
     rekeymargin=3m
     keyingtries=1
     keyexchange=ikev2
-    authby=secret
 
 conn turnip
     left=%any
-    leftid=@${SERVER_ADDR}
+    leftid=${SERVER_ADDR}
+    leftauth=pubkey
     leftcert=serverCert.pem
     leftsendcert=always
     leftsubnet=0.0.0.0/0
@@ -143,14 +143,12 @@ conn turnip
     rightdns=${DNS1},${DNS2}
 
     eap_identity=%identity
-    ike=chacha20poly1305-sha512-curve25519-prfsha512,aes256gcm16-sha384-prfsha384-ecp384,aes256-sha1-modp1024,aes128-sha1-modp1024,3des-sha1-modp1024!
-    esp=chacha20poly1305-sha512,aes256gcm16-ecp384,aes256-sha256,aes256-sha1,3des-sha1!
+    ike=aes256gcm16-sha384-prfsha384-ecp384,aes256-sha256-modp2048,aes256-sha1-modp2048!
+    esp=aes256gcm16,aes256-sha256,aes256-sha1!
 
     dpdaction=clear
     dpddelay=300s
     rekey=no
-
-    left=%defaultroute
     leftfirewall=yes
     auto=add
 EOF

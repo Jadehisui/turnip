@@ -34,7 +34,7 @@ turnip/
 │   └── admin.html             ← admin dashboard UI
 │
 ├── backend/                   ← Payment backend (Step 3)
-│   ├── webhook.py             ← Paystack webhook server (port 8766)
+│   ├── webhook.py             ← Payment webhook server (Lemon Squeezy + NOWPayments, port 8766)
 │   ├── provisioner.py         ← VPN user creation + .mobileconfig generator
 │   ├── emailer.py             ← welcome email with credentials
 │   ├── database.py            ← SQLite subscription tracker
@@ -87,9 +87,11 @@ cd monitoring && sudo bash install-monitoring.sh
 ## Configuration: backend/.env
 
 ```env
-PAYSTACK_SECRET_KEY=sk_live_...     # from Paystack dashboard
-PAYSTACK_PUBLIC_KEY=pk_live_...     # from Paystack dashboard
-VPN_SERVER_ADDR=vpn.yourdomain.com  # your domain
+LEMONSQUEEZY_WEBHOOK_SECRET=whsec_...  # from LS dashboard → Settings → Webhooks
+NOWPAYMENTS_API_KEY=...                # from NOWPayments dashboard → API Keys
+NOWPAYMENTS_IPN_SECRET=...            # from NOWPayments → Store Settings → IPN
+ADMIN_TOKEN=change-me-strong-password  # for the admin API
+VPN_SERVER_ADDR=vpn.yourdomain.com     # your domain
 MAX_USERS=80
 
 EMAIL_PROVIDER=smtp
@@ -123,13 +125,18 @@ Run `install.sh` on each server. The provisioner will auto-select the server wit
 
 ---
 
-## Paystack webhook
+## Webhooks (register after deploy)
 
-After deploy, register in Paystack dashboard:
-
+**Lemon Squeezy** → Settings → Webhooks → Add endpoint:
 ```
-Settings → API Keys & Webhooks → Webhook URL:
-https://YOUR_DOMAIN/webhook/paystack
+URL:    https://YOUR_DOMAIN/webhook/lemonsqueezy
+Events: order_created, subscription_created, subscription_payment_success,
+        subscription_cancelled, subscription_expired
+```
+
+**NOWPayments** → Store Settings → IPN Settings:
+```
+Callback URL: https://YOUR_DOMAIN/webhook/nowpayments
 ```
 
 ---
@@ -180,16 +187,23 @@ fail2ban-client set ike-auth unbanip X  # unban an IP
 
 ## What happens when someone pays
 
-1. Customer visits `/pricing` → clicks plan → Paystack popup
-2. Payment confirmed → Paystack sends webhook to `/webhook/paystack`
-3. `webhook.py` verifies HMAC-SHA512 signature
-4. `provisioner.py` creates VPN credentials + `.mobileconfig` profile
+**Card payment (Lemon Squeezy):**
+1. Customer visits `/pricing` → selects continent + plan → Lemon Squeezy checkout
+2. Payment confirmed → Lemon Squeezy sends `order_created` webhook
+3. `webhook.py` verifies HMAC-SHA256 signature
+4. `provisioner.py` creates VPN credentials for the chosen region
 5. `database.py` records the subscription
-6. `emailer.py` sends welcome email with credentials + profile attachment
+6. `emailer.py` sends welcome email with credentials + `.mobileconfig` attachment
 7. Customer opens `.mobileconfig` → VPN active in one tap
+
+**Crypto payment (NOWPayments):**
+1. Customer selects crypto → invoice created via NOWPayments API
+2. Customer pays USDT/USDC on NOWPayments hosted page
+3. NOWPayments fires IPN callback to `/webhook/nowpayments`
+4. `webhook.py` verifies HMAC-SHA512 signature → same provisioning flow
 
 Total time from payment to connected: **under 60 seconds.**
 
 ---
 
-Built with: StrongSwan · Flask · SQLite · Paystack · Gunicorn · Nginx · fail2ban · Cockpit
+Built with: StrongSwan · Flask · SQLite · Lemon Squeezy · NOWPayments · Gunicorn · Nginx · fail2ban · Cockpit

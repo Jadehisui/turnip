@@ -5,7 +5,7 @@ import { Check, CreditCard, Wallet, MapPin, Globe } from 'lucide-react';
 const Pricing = () => {
     const [country, setCountry] = useState(null);
     const [servers, setServers] = useState([]);
-    const [region, setRegion] = useState('us');
+    const [region, setRegion] = useState('eu');
 
     useEffect(() => {
         fetch('/api/geo')
@@ -20,6 +20,29 @@ const Pricing = () => {
     }, []);
 
     const isNG = !country || country === 'NG';
+
+    // Continent metadata for display
+    const CONTINENT_META = {
+        eu: { name: 'Europe',        flag: '🌍' },
+        na: { name: 'North America', flag: '🌎' },
+        as: { name: 'Asia',          flag: '🌏' },
+    };
+
+    // Derive available continents from active servers (deduplicated)
+    const availableContinents = [
+        ...new Map(
+            servers
+                .filter(s => s.continent && CONTINENT_META[s.continent])
+                .map(s => [s.continent, { continent: s.continent, ...CONTINENT_META[s.continent] }])
+        ).values()
+    ];
+
+    // Auto-select first available continent if current choice isn't available
+    useEffect(() => {
+        if (availableContinents.length > 0 && !availableContinents.find(c => c.continent === region)) {
+            setRegion(availableContinents[0].continent);
+        }
+    }, [servers]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const plans = [
         {
@@ -122,17 +145,17 @@ const Pricing = () => {
                     </div>
                 )}
 
-                {servers.length > 0 && (
+                {availableContinents.length > 0 && (
                     <div className="region-picker">
                         <div className="region-label"><Globe size={14} /> Choose server region</div>
                         <div className="region-options">
-                            {servers.map(s => (
+                            {availableContinents.map(c => (
                                 <button
-                                    key={s.region}
-                                    className={`region-btn ${region === s.region ? 'active' : ''}`}
-                                    onClick={() => setRegion(s.region)}
+                                    key={c.continent}
+                                    className={`region-btn ${region === c.continent ? 'active' : ''}`}
+                                    onClick={() => setRegion(c.continent)}
                                 >
-                                    {s.flag} {s.country}
+                                    {c.flag} {c.name}
                                 </button>
                             ))}
                         </div>

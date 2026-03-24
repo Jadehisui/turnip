@@ -282,7 +282,7 @@ def regenerate_password():
     return jsonify({"ok": True, "password": new_password})
 
 
-def _ls_checkout_url(email: str, plan_code: str, region: str = "us") -> str:
+def _ls_checkout_url(email: str, plan_code: str, region: str = "eu") -> str:
     """Build a Lemon Squeezy checkout URL with pre-filled email and custom data."""
     from urllib.parse import urlencode
     base = LS_VARIANT_URLS.get(plan_code.lower(), "")
@@ -308,7 +308,7 @@ def initiate_payment():
     """Return a Lemon Squeezy checkout URL for the logged-in user (renewal/upgrade)."""
     data      = request.get_json()
     plan_code = data.get("plan_code", "pro")
-    region    = data.get("region", "us")
+    region    = data.get("region", "eu")
     try:
         payment_url = _ls_checkout_url(session["email"], plan_code, region)
         return jsonify({"ok": True, "payment_url": payment_url})
@@ -323,7 +323,7 @@ def pay_public_initiate():
     data      = request.get_json()
     email     = data.get("email", "")
     plan_code = data.get("plan_code", "pro")
-    region    = data.get("region", "us")
+    region    = data.get("region", "eu")
 
     if not email or "@" not in email:
         return jsonify({"error": "Valid email is required"}), 400
@@ -347,7 +347,7 @@ def crypto_pay_initiate():
     email      = data.get("email") or session.get("email", "")
     amount_ngn = float(data.get("amount_ngn", 4000))
     plan_code  = data.get("plan_code", "pro")
-    region     = data.get("region", "us")
+    region     = data.get("region", "eu")
 
     if not email or "@" not in email:
         return jsonify({"error": "Valid email is required"}), 400
@@ -427,7 +427,16 @@ def get_servers():
     """Return the list of active VPN server regions for the region picker UI."""
     active = [s for s in SERVERS if s.get("active")]
     # Don't expose internal host IPs to the frontend
-    safe = [{"region": s["region"], "name": s["name"], "country": s["country"], "flag": s["flag"]} for s in active]
+    safe = [
+        {
+            "region":    s["region"],
+            "name":      s["name"],
+            "country":   s["country"],
+            "flag":      s["flag"],
+            "continent": s.get("continent", ""),
+        }
+        for s in active
+    ]
     return jsonify({"servers": safe})
 
 

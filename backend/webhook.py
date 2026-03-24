@@ -53,7 +53,7 @@ def verify_lemonsqueezy_signature(payload: bytes, sig_header: str) -> bool:
 
 # ── Shared provisioning helper ────────────────────────────────────────────────
 
-def _provision_and_record(email: str, plan_code: str, reference: str, region: str = "us"):
+def _provision_and_record(email: str, plan_code: str, reference: str, region: str = "eu"):
     """Find plan, provision VPN account(s), record payment, email credentials."""
     if get_subscription(reference):
         log.warning(f"Duplicate webhook ignored: ref={reference}")
@@ -61,7 +61,7 @@ def _provision_and_record(email: str, plan_code: str, reference: str, region: st
 
     plan  = PLAN_MAP.get(plan_code.lower(), PLAN_MAP.get("pro"))
     creds = provision_user(email, plan, region)
-    log.info(f"VPN account(s) created for {email} | region={region}")
+    log.info(f"VPN account(s) created for {email} | region={creds['region']}")
 
     record_payment(
         email=email,
@@ -71,7 +71,7 @@ def _provision_and_record(email: str, plan_code: str, reference: str, region: st
         duration_days=plan["duration_days"],
         username=creds["username"],
         password=creds["password"],
-        region=region,
+        region=creds["region"],
         devices=creds["devices"],
     )
     send_welcome_email(email, creds, plan)
@@ -87,7 +87,7 @@ def handle_order_created(data: dict, meta: dict):
     reference   = attrs.get("identifier", str(data.get("id", "")))
     custom_data = meta.get("custom_data") or {}
     plan_code   = custom_data.get("plan_code", "pro")
-    region      = custom_data.get("region", "us")
+    region      = custom_data.get("region", "eu")
 
     log.info(f"order_created: {email} | plan={plan_code} | region={region} | ref={reference}")
     _provision_and_record(email, plan_code, reference, region)
@@ -100,7 +100,7 @@ def handle_subscription_created(data: dict, meta: dict):
     reference   = f"sub_{data.get('id', '')}"
     custom_data = meta.get("custom_data") or {}
     plan_code   = custom_data.get("plan_code", "pro")
-    region      = custom_data.get("region", "us")
+    region      = custom_data.get("region", "eu")
 
     log.info(f"subscription_created: {email} | plan={plan_code} | region={region}")
     _provision_and_record(email, plan_code, reference, region)
@@ -113,7 +113,7 @@ def handle_subscription_payment_success(data: dict, meta: dict):
     reference   = f"renewal_{data.get('id', '')}_{attrs.get('updated_at', '')}"
     custom_data = meta.get("custom_data") or {}
     plan_code   = custom_data.get("plan_code", "pro")
-    region      = custom_data.get("region", "us")
+    region      = custom_data.get("region", "eu")
 
     log.info(f"subscription_payment_success: {email} | plan={plan_code} | region={region}")
     _provision_and_record(email, plan_code, reference, region)

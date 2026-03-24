@@ -20,18 +20,25 @@ SSH_KEY_PATH   = os.environ.get("SSH_KEY_PATH",  "/root/.ssh/turnip_deploy")
 MAX_PER_SERVER = int(os.environ.get("MAX_USERS",  "80"))
 SECRETS_FILE   = "/etc/ipsec.secrets"
 
+CONTINENT_LABELS = {
+    "eu": {"name": "Europe",        "flag": "🌍"},
+    "na": {"name": "North America", "flag": "🌎"},
+    "as": {"name": "Asia",          "flag": "🌏"},
+}
+
 
 # ── Server registry ───────────────────────────────────────────────────────────
 
 @dataclass
 class VPNServer:
-    id:       str
-    name:     str
-    country:  str
-    flag:     str
-    host:     str          # IP or hostname
-    region:   str          # nl | us | ca | sg
-    active:   bool = True
+    id:        str
+    name:      str
+    country:   str
+    flag:      str
+    host:      str          # IP or hostname
+    region:    str          # nl | us | ca | sg | de | uk | jp | in
+    continent: str = ""    # eu | na | as
+    active:    bool = True
 
     def to_dict(self):
         return asdict(self)
@@ -39,10 +46,11 @@ class VPNServer:
 
 def load_servers() -> list[VPNServer]:
     """Load server list from servers.json or environment."""
-    path = Path("/opt/turnip/servers.json")
-    if path.exists():
-        data = json.loads(path.read_text())
-        return [VPNServer(**s) for s in data]
+    # Check production path first, then local (dev) path
+    for path in (Path("/opt/turnip/servers.json"), Path(__file__).parent / "servers.json"):
+        if path.exists():
+            data = json.loads(path.read_text())
+            return [VPNServer(**s) for s in data]
 
     # Fallback: build from env vars
     servers = []
@@ -191,6 +199,41 @@ def get_best_server(servers: list[VPNServer]) -> Optional[VPNServer]:
             best = srv
 
     return best
+
+
+def get_best_server_for_continent(continent: str) -> Optional[VPNServer]:
+    """
+    Pick the best active server within a given continent (eu/na/as).
+    Falls back to global best if no servers exist for that continent.
+    """
+    servers = load_servers()
+    continent_servers = [s for s in servers if s.active and s.continent == continent]
+    if continent_servers:
+        return get_best_server(continent_servers)
+    log.warning(f"No active servers for continent '{continent}' — using global best")
+    return get_best_server(servers)
+
+
+def get_available_continents() -> list[dict]:
+    """
+    Return continents that have at least one active server, with server count.
+    Used by the frontend region picker.
+    """
+    servers = load_servers()
+    found: dict[str, dict] = {}
+    for s in servers:
+        if not s.active or not s.continent:
+            continue
+        if s.continent not in found:
+            label = CONTINENT_LABELS.get(s.continent, {"name": s.continent.upper(), "flag": "🌐"})
+            found[s.continent] = {
+                "continent":    s.continent,
+                "name":         label["name"],
+                "flag":         label["flag"],
+                "server_count": 0,
+            }
+        found[s.continent]["server_count"] += 1
+    return list(found.values())
 
 
 # ── Remote user management ────────────────────────────────────────────────────
