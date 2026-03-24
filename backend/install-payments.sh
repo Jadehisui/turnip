@@ -20,7 +20,7 @@ echo ""
 
 # ── Install Python deps ───────────────────────────────────────────────────────
 info "Installing Python dependencies..."
-pip3 install flask gunicorn python-dotenv psutil sendgrid requests siwe eth-account --break-system-packages -q
+pip3 install flask gunicorn python-dotenv psutil sendgrid requests siwe eth-account --break-system-packages --ignore-installed -q
 success "Dependencies installed"
 
 # ── Deploy to /opt/turnip ─────────────────────────────────────────────
