@@ -50,8 +50,8 @@ from database import db_init, get_subscription, get_all_subscriptions, record_pa
 from provisioner import provision_user, deprovision_user, generate_password, generate_mobileconfig, get_plan_for_amount, get_server_host, PLANS, CA_CERT_PATH, SERVERS
 
 app = Flask(__name__, 
-            static_folder='../frontend/dist', 
-            template_folder='../frontend/dist')
+            static_folder='frontend/dist', 
+            template_folder='frontend/dist')
 app.secret_key      = os.environ.get("PORTAL_SECRET_KEY", secrets.token_hex(32))
 app.permanent_session_lifetime = timedelta(hours=12)
 
