@@ -46,7 +46,7 @@ log = logging.getLogger(__name__)
 # Import shared modules from payment backend
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../backend"))
-from database import db_init, get_subscription, get_all_subscriptions, record_payment, get_devices_for_email
+from database import db_init, get_subscription, get_all_subscriptions, record_payment, get_devices_for_email, register_user, get_user
 from provisioner import provision_user, deprovision_user, generate_password, generate_mobileconfig, get_plan_for_amount, get_server_host, PLANS, CA_CERT_PATH, SERVERS
 
 app = Flask(__name__, 
@@ -152,6 +152,39 @@ def api_login():
     session["email"]  = email
     log.info(f"API Login: {email}")
     return jsonify({"ok": True, "email": email})
+
+
+@app.route("/api/auth/register", methods=["POST"])
+def api_register():
+    data  = request.get_json() or {}
+    name  = data.get("name", "").strip()
+    email = data.get("email", "").strip().lower()
+
+    if not name or len(name) < 2:
+        return jsonify({"error": "Please enter your full name"}), 400
+    if not email or "@" not in email:
+        return jsonify({"error": "Enter a valid email address"}), 400
+
+    # If they already have a subscription, just log them in
+    sub = get_subscription(email=email)
+    if sub:
+        session.permanent = True
+        session["email"]  = email
+        return jsonify({"ok": True, "email": email, "redirect": "/dashboard"})
+
+    # Check if already registered
+    existing = get_user(email=email)
+    if existing:
+        return jsonify({"error": "This email is already registered. Please sign in or purchase a plan."}), 409
+
+    try:
+        register_user(name=name, email=email)
+    except Exception as e:
+        log.error(f"Register error: {e}")
+        return jsonify({"error": "Registration failed. Please try again."}), 500
+
+    log.info(f"New user registered: {name} <{email}>")
+    return jsonify({"ok": True, "email": email, "redirect": "/pricing"})
 
 
 @app.route("/login", methods=["POST"])

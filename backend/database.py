@@ -80,10 +80,19 @@ def db_init():
                 created_at   TEXT NOT NULL DEFAULT (datetime('now'))
             );
 
+            CREATE TABLE IF NOT EXISTS users (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                name         TEXT NOT NULL,
+                email        TEXT NOT NULL UNIQUE,
+                status       TEXT NOT NULL DEFAULT 'registered',
+                created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
             CREATE INDEX IF NOT EXISTS idx_sub_email     ON subscriptions(email);
             CREATE INDEX IF NOT EXISTS idx_sub_username  ON subscriptions(username);
             CREATE INDEX IF NOT EXISTS idx_dev_email     ON subscription_devices(email);
             CREATE INDEX IF NOT EXISTS idx_pay_reference ON payments(reference);
+            CREATE INDEX IF NOT EXISTS idx_users_email   ON users(email);
         """)
         # Migrate existing DBs that lack server_region column
         try:
@@ -225,4 +234,39 @@ def get_expired_active() -> list[dict]:
             WHERE status = 'active'
             AND expires_at < ?
         """, (now,)).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ── User registration ──────────────────────────────────────────────────────────
+
+def register_user(name: str, email: str) -> dict:
+    """Register a new user by name + email. Returns the user row or raises on duplicate."""
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO users (name, email, status, created_at) VALUES (?, ?, 'registered', ?)",
+            (name.strip(), email.strip().lower(), now)
+        )
+        row = conn.execute("SELECT * FROM users WHERE email = ?", (email.strip().lower(),)).fetchone()
+        return dict(row)
+
+
+def get_user(email: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM users WHERE email = ?", (email.strip().lower(),)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_all_users() -> list[dict]:
+    """Return all registered users joined with subscription info if available."""
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT u.id, u.name, u.email, u.status, u.created_at,
+                   s.plan_name, s.status AS sub_status, s.expires_at
+            FROM users u
+            LEFT JOIN subscriptions s ON s.email = u.email
+            ORDER BY u.created_at DESC
+        """).fetchall()
         return [dict(r) for r in rows]

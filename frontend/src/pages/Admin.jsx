@@ -14,6 +14,7 @@ const Admin = () => {
     const [addUserForm, setAddUserForm] = useState({ username: '', password: '' });
     const [addMsg, setAddMsg] = useState({ text: '', type: '' });
     const [toast, setToast] = useState({ show: false, text: '', type: 'ok' });
+    const [subscribers, setSubscribers] = useState([]);
     const pollTimer = useRef(null);
 
     const showToast = (text, type = 'ok') => {
@@ -42,10 +43,11 @@ const Admin = () => {
     const refresh = async () => {
         if (!token) return;
         try {
-            const [statusRes, usersRes, serversRes] = await Promise.all([
+            const [statusRes, usersRes, serversRes, subsRes] = await Promise.all([
                 apiFetch('/api/status'),
                 apiFetch('/api/users'),
                 apiFetch('/api/servers'),
+                apiFetch('/api/subscribers'),
             ]);
 
             if (!statusRes.ok || !usersRes.ok) {
@@ -61,6 +63,11 @@ const Admin = () => {
             if (serversRes.ok) {
                 const serversData = await serversRes.json();
                 setServers(serversData.servers || []);
+            }
+
+            if (subsRes.ok) {
+                const subsData = await subsRes.json();
+                setSubscribers(subsData.subscribers || []);
             }
         } catch (error) {
             console.error('Refresh Error:', error);
@@ -375,6 +382,48 @@ const Admin = () => {
                     </div>
                 )}
 
+                {/* Registered Users */}
+                <div className="subs-card">
+                    <div className="card-header">
+                        <h3>Registered Users</h3>
+                        <div className="badge">{subscribers.length} total</div>
+                    </div>
+                    <div className="subs-table-wrap custom-scrollbar">
+                        {subscribers.length === 0 ? (
+                            <div className="empty">No registered users yet</div>
+                        ) : (
+                            <table className="subs-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Email</th>
+                                        <th>Registered</th>
+                                        <th>Plan</th>
+                                        <th>Status</th>
+                                        <th>Expires</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {subscribers.map((s) => (
+                                        <tr key={s.email}>
+                                            <td>{s.name}</td>
+                                            <td className="mono">{s.email}</td>
+                                            <td className="mono muted">{s.created_at ? s.created_at.slice(0, 10) : '—'}</td>
+                                            <td>{s.plan || '—'}</td>
+                                            <td>
+                                                <span className={`sub-badge ${s.sub_status === 'active' ? 'active' : s.sub_status === 'expired' ? 'expired' : 'none'}`}>
+                                                    {s.sub_status || 'none'}
+                                                </span>
+                                            </td>
+                                            <td className="mono muted">{s.expires_at ? s.expires_at.slice(0, 10) : '—'}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        )}
+                    </div>
+                </div>
+
                 <div className="main-grid">
                     {/* User Management */}
                     <div className="users-card">
@@ -588,6 +637,20 @@ const Admin = () => {
         .fleet-bar-row { display: grid; grid-template-columns: 28px 1fr 32px; align-items: center; gap: 8px; font-family: var(--mono); font-size: 9px; color: var(--text3); }
         .fleet-pct { text-align: right; font-weight: 700; }
         .fleet-meta { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 9px; color: var(--text3); padding-top: 0.75rem; border-top: 1px solid var(--border); }
+
+        .subs-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 16px; padding: 1.5rem; margin-bottom: 1.5rem; }
+        .subs-table-wrap { overflow-x: auto; max-height: 320px; overflow-y: auto; }
+        .subs-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .subs-table th { font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; color: var(--text3); padding: 0 12px 10px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+        .subs-table td { padding: 10px 12px; border-bottom: 1px solid var(--adim); vertical-align: middle; }
+        .subs-table tr:last-child td { border-bottom: none; }
+        .subs-table tr:hover td { background: var(--bg3); }
+        .subs-table .mono { font-family: var(--mono); font-size: 12px; }
+        .subs-table .muted { color: var(--text2); }
+        .sub-badge { font-family: var(--mono); font-size: 9px; font-weight: 800; letter-spacing: .05em; padding: 3px 8px; border-radius: 4px; text-transform: uppercase; }
+        .sub-badge.active { color: var(--accent); background: var(--adim); border: 1px solid rgba(74,222,128,0.2); }
+        .sub-badge.expired { color: var(--red); background: rgba(244,63,94,0.08); border: 1px solid rgba(244,63,94,0.2); }
+        .sub-badge.none { color: var(--text3); background: var(--bg3); border: 1px solid var(--border); }
       `}</style>
         </div>
     );
