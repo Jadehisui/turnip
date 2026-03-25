@@ -46,6 +46,72 @@ def send_welcome_email(to_email: str, creds: dict, plan: dict):
     log.info(f"Email delivered to {to_email}")
 
 
+def send_registration_notification(user_name: str, user_email: str):
+    """Send a plain admin notification to dev@turnipvpn.site when a new user registers."""
+    admin_to = os.environ.get("ADMIN_NOTIFY_EMAIL", "dev@turnipvpn.site")
+    subject  = f"New registration: {user_name} <{user_email}>"
+    text     = (
+        f"A new user just registered on Turnip VPN.\n\n"
+        f"Name:  {user_name}\n"
+        f"Email: {user_email}\n\n"
+        f"They have been directed to the pricing page to pick a plan."
+    )
+    html = f"""<!DOCTYPE html>
+<html><body style="font-family:sans-serif;color:#111;background:#fff;padding:24px">
+<h2 style="color:#059669">New Turnip VPN Registration</h2>
+<table>
+  <tr><td style="padding:4px 12px 4px 0;font-weight:700">Name</td><td>{user_name}</td></tr>
+  <tr><td style="padding:4px 12px 4px 0;font-weight:700">Email</td><td>{user_email}</td></tr>
+</table>
+<p style="color:#555;margin-top:16px">They have been directed to the pricing page to choose a plan.</p>
+</body></html>"""
+
+    try:
+        if EMAIL_PROVIDER == "sendgrid":
+            _send_simple_sendgrid(admin_to, subject, html, text)
+        else:
+            _send_simple_smtp(admin_to, subject, html, text)
+        log.info(f"Admin registration notification sent for {user_email}")
+    except Exception as e:
+        log.error(f"Failed to send admin notification: {e}")
+
+
+def _send_simple_smtp(to: str, subject: str, html: str, text: str):
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"]    = f"{FROM_NAME} <{FROM_EMAIL}>"
+    msg["To"]      = to
+    msg.attach(MIMEText(text, "plain"))
+    msg.attach(MIMEText(html, "html"))
+    if SMTP_PORT == 465:
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as s:
+            s.login(SMTP_USER, SMTP_PASS)
+            s.sendmail(FROM_EMAIL, to, msg.as_string())
+    else:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+            s.starttls()
+            s.login(SMTP_USER, SMTP_PASS)
+            s.sendmail(FROM_EMAIL, to, msg.as_string())
+
+
+def _send_simple_sendgrid(to: str, subject: str, html: str, text: str):
+    try:
+        import sendgrid
+        from sendgrid.helpers.mail import Mail, To, From
+    except ImportError:
+        log.error("sendgrid package not installed")
+        raise
+    sg = sendgrid.SendGridAPIClient(api_key=SENDGRID_KEY)
+    message = Mail(
+        from_email=From(FROM_EMAIL, FROM_NAME),
+        to_emails=To(to),
+        subject=subject,
+        plain_text_content=text,
+        html_content=html,
+    )
+    sg.send(message)
+
+
 # ── SMTP sender ───────────────────────────────────────────────────────────────
 
 def _send_smtp(to: str, subject: str, html: str, text: str,
