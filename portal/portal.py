@@ -55,6 +55,8 @@ app = Flask(__name__,
 app.secret_key      = os.environ.get("PORTAL_SECRET_KEY", secrets.token_hex(32))
 app.permanent_session_lifetime = timedelta(hours=12)
 
+db_init()  # ensure tables exist whether running via gunicorn or directly
+
 VPN_SERVER_ADDR = os.environ.get("VPN_SERVER_ADDR", "vpn.yourdomain.com")
 SITE_URL        = os.environ.get("SITE_URL", "")
 
@@ -942,7 +944,6 @@ async function payWithCrypto(amount, planCode) {
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    db_init()
     log.info("Turnip customer portal starting on :8767")
     app.run(host="0.0.0.0", port=8767, debug=False)
 

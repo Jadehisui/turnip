@@ -230,7 +230,8 @@ def nowpayments_webhook():
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 
+db_init()  # ensure tables exist whether running via gunicorn or directly
+
 if __name__ == "__main__":
-    db_init()
     log.info("Turnip payment backend starting on :8766")
     app.run(host="0.0.0.0", port=8766, debug=False)
