@@ -48,6 +48,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../backend"))
 from database import db_init, get_subscription, get_all_subscriptions, record_payment, get_devices_for_email, register_user, get_user
 from provisioner import provision_user, deprovision_user, generate_password, generate_mobileconfig, get_plan_for_amount, get_server_host, PLANS, CA_CERT_PATH, SERVERS
+from emailer import send_registration_notification
 
 app = Flask(__name__, 
             static_folder='frontend/dist', 
@@ -183,7 +184,18 @@ def api_register():
         log.error(f"Register error: {e}")
         return jsonify({"error": "Registration failed. Please try again."}), 500
 
+    # Sign them in immediately
+    session.permanent = True
+    session["email"]  = email
+
     log.info(f"New user registered: {name} <{email}>")
+
+    # Notify admin
+    try:
+        send_registration_notification(user_name=name, user_email=email)
+    except Exception as e:
+        log.error(f"Admin notification failed: {e}")
+
     return jsonify({"ok": True, "email": email, "redirect": "/pricing"})
 
 
