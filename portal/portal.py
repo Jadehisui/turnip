@@ -132,8 +132,8 @@ def user_status():
 
 @app.route("/login", methods=["GET"])
 def login_page():
-    error = request.args.get("error", "")
-    return render_template_string(LOGIN_TEMPLATE, error=error)
+    # Login UI is handled by the React SPA
+    return send_from_directory(app.static_folder, 'index.html')
 
 
 @app.route("/api/auth/login", methods=["POST"])
@@ -176,7 +176,7 @@ def login_post():
 def logout():
     email = session.pop("email", "")
     log.info(f"Logout: {email}")
-    return redirect(url_for("login_page"))
+    return redirect("/login")
 
 
 @app.route("/dashboard")
