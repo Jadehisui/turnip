@@ -127,7 +127,14 @@ server {
         proxy_set_header X-Forwarded-Proto \$scheme;
     }
 
-    location ~ ^/(login|logout|dashboard|admin|download|api|health) {
+    location /logout {
+        proxy_pass       http://127.0.0.1:8767;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    location ~ ^/(dashboard|admin|download|api|health) {
         proxy_pass       http://127.0.0.1:8767;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
