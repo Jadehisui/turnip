@@ -16,6 +16,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import sys
+sys.path.insert(0, os.path.dirname(__file__))
+from database import db_init, get_all_users, get_all_subscriptions
+
 from multiserver import (
     load_servers,
     get_best_server,
@@ -35,6 +39,7 @@ app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
+db_init()
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -237,6 +242,16 @@ def list_servers():
     try:
         fleet = get_fleet_status()
         return jsonify({"servers": fleet})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/subscribers")
+def list_subscribers():
+    _require_auth()
+    try:
+        users = get_all_users()
+        return jsonify({"subscribers": users, "total": len(users)})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
