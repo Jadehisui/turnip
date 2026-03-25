@@ -417,11 +417,8 @@ def auth_wallet():
 
 @app.route("/pricing")
 def pricing():
-    return render_template_string(
-        PRICING_TEMPLATE,
-        plans=PLANS,
-        email=session.get("email", ""),
-    )
+    # Pricing is handled by the React SPA
+    return send_from_directory(app.static_folder, 'index.html')
 
 
 @app.route("/api/servers")
