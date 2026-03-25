@@ -40,8 +40,8 @@ const Login = () => {
                 >
                     <div className="login-header">
                         <div className="login-icon"><Shield size={24} color="var(--accent)" /></div>
-                        <h2>Welcome back</h2>
-                        <p>Enter your email to access your VPN dashboard.</p>
+                        <h2>Sign in</h2>
+                        <p>Enter the email you used when purchasing your plan to access your VPN dashboard.</p>
                     </div>
 
                     <form onSubmit={handleEmailLogin}>
@@ -61,7 +61,8 @@ const Login = () => {
                     </form>
 
                     <div className="login-footer">
-                        No account yet? <a href="/pricing">View plans →</a>
+                        No account yet? <a href="/pricing">Choose a plan →</a>
+                        <div className="login-note">Your account is created automatically after payment. No signup needed.</div>
                     </div>
                 </motion.div>
             </div>
@@ -82,6 +83,7 @@ const Login = () => {
         .btn-full { width: 100%; display: flex; justify-content: center; gap: 10px; padding: 14px; font-size: 15px; }
         .login-footer { margin-top: 2rem; text-align: center; font-size: 13px; color: var(--text3); }
         .login-footer a { color: var(--accent); font-weight: 700; margin-left: 5px; }
+        .login-note { margin-top: 0.75rem; font-size: 12px; color: var(--text3); opacity: 0.7; }
 
         .animate-spin { animation: spin 1s linear infinite; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
