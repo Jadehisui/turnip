@@ -48,7 +48,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../backend"))
 from database import db_init, get_subscription, get_all_subscriptions, record_payment, get_devices_for_email, register_user, get_user
 from provisioner import provision_user, deprovision_user, generate_password, generate_mobileconfig, get_plan_for_amount, get_server_host, PLANS, CA_CERT_PATH, SERVERS
-from emailer import send_registration_notification
+from emailer import send_registration_notification, send_user_welcome_email
 
 app = Flask(__name__, 
             static_folder='frontend/dist', 
@@ -189,6 +189,12 @@ def api_register():
     session["email"]  = email
 
     log.info(f"New user registered: {name} <{email}>")
+
+    # Welcome email to the new user
+    try:
+        send_user_welcome_email(user_name=name, user_email=email)
+    except Exception as e:
+        log.error(f"Welcome email failed: {e}")
 
     # Notify admin
     try:

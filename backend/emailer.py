@@ -46,6 +46,72 @@ def send_welcome_email(to_email: str, creds: dict, plan: dict):
     log.info(f"Email delivered to {to_email}")
 
 
+def send_user_welcome_email(user_name: str, user_email: str):
+    """Send a welcome email to the newly registered user directing them to pick a plan."""
+    site_url = os.environ.get("SITE_URL", "https://turnipvpn.site")
+    subject  = "Welcome to Turnip VPN — pick your plan to get started"
+    text = (
+        f"Hi {user_name},\n\n"
+        f"Your Turnip VPN account has been created successfully.\n\n"
+        f"Next step: choose a plan to activate your VPN connection.\n"
+        f"{site_url}/pricing\n\n"
+        f"Once payment is confirmed your VPN credentials will be delivered\n"
+        f"to this email address automatically.\n\n"
+        f"— The Turnip VPN Team"
+    )
+    html = f"""<!DOCTYPE html>
+<html>
+<head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>
+<body style=\"margin:0;padding:0;background:#0a0f1e;font-family:sans-serif\">
+  <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\">
+    <tr><td align=\"center\" style=\"padding:40px 16px\">
+      <table width=\"560\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#111827;border-radius:16px;overflow:hidden;border:1px solid #1f2937\">
+        <!-- Header -->
+        <tr><td style=\"background:#059669;padding:28px 36px\">
+          <h1 style=\"margin:0;color:#fff;font-size:22px;font-weight:800\">Turnip<span style=\"color:#d1fae5\">VPN</span></h1>
+        </td></tr>
+        <!-- Body -->
+        <tr><td style=\"padding:36px\">
+          <p style=\"margin:0 0 8px;color:#9ca3af;font-size:13px;text-transform:uppercase;letter-spacing:.08em\">Welcome aboard</p>
+          <h2 style=\"margin:0 0 20px;color:#f9fafb;font-size:24px\">Hi {user_name} 👋</h2>
+          <p style=\"color:#d1d5db;font-size:15px;line-height:1.6;margin:0 0 24px\">
+            Your Turnip VPN account has been created. You're one step away from a fast, private internet connection.
+          </p>
+          <table cellpadding=\"0\" cellspacing=\"0\" style=\"margin-bottom:28px\">
+            <tr>
+              <td style=\"background:#0a0f1e;border:1px solid #1f2937;border-radius:10px;padding:18px 20px\">
+                <p style=\"margin:0 0 6px;color:#6b7280;font-size:12px;font-weight:700;text-transform:uppercase\">Registered email</p>
+                <p style=\"margin:0;color:#f9fafb;font-family:monospace;font-size:15px\">{user_email}</p>
+              </td>
+            </tr>
+          </table>
+          <p style=\"color:#d1d5db;font-size:14px;line-height:1.6;margin:0 0 28px\">
+            <strong style=\"color:#f9fafb\">Next step:</strong> choose a plan below. Once your payment is confirmed,
+            your VPN credentials will be sent to this email automatically.
+          </p>
+          <a href=\"{site_url}/pricing\" style=\"
+            display:inline-block;background:#059669;color:#fff;
+            text-decoration:none;padding:14px 32px;border-radius:8px;
+            font-weight:800;font-size:15px\">View Plans &amp; Get Started →</a>
+        </td></tr>
+        <!-- Footer -->
+        <tr><td style=\"padding:20px 36px;border-top:1px solid #1f2937\">
+          <p style=\"margin:0;color:#4b5563;font-size:12px\">Turnip VPN · You're receiving this because you just registered.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>"""
+    try:
+        if EMAIL_PROVIDER == "sendgrid":
+            _send_simple_sendgrid(user_email, subject, html, text)
+        else:
+            _send_simple_smtp(user_email, subject, html, text)
+        log.info(f"Welcome email sent to {user_email}")
+    except Exception as e:
+        log.error(f"Failed to send welcome email to {user_email}: {e}")
+
+
 def send_registration_notification(user_name: str, user_email: str):
     """Send a plain admin notification to dev@turnipvpn.site when a new user registers."""
     admin_to = os.environ.get("ADMIN_NOTIFY_EMAIL", "dev@turnipvpn.site")
