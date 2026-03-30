@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Menu, X, Shield } from 'lucide-react';
+import { Menu, X, LayoutDashboard, LogOut } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 const Navbar = () => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const location = useLocation();
+  const { user, logout, loading } = useAuth();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -39,12 +41,27 @@ const Navbar = () => {
           </div>
 
           <div className="nav-ctas">
-            <Link to="/login" className="btn btn-outline btn-nav">
-              Sign in
-            </Link>
-            <Link to="/pricing" className="btn btn-primary btn-nav">
-              Get started
-            </Link>
+            {!loading && (
+              user ? (
+                <>
+                  <Link to="/dashboard" className="btn btn-outline btn-nav">
+                    <LayoutDashboard size={14} /> Dashboard
+                  </Link>
+                  <button className="btn btn-ghost btn-nav" onClick={logout}>
+                    <LogOut size={14} /> Sign out
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Link to="/login" className="btn btn-outline btn-nav">
+                    Sign in
+                  </Link>
+                  <Link to="/pricing" className="btn btn-primary btn-nav">
+                    Get started
+                  </Link>
+                </>
+              )
+            )}
           </div>
 
           <button className="hamburger" onClick={() => setIsMenuOpen(!isMenuOpen)}>
@@ -65,8 +82,17 @@ const Navbar = () => {
               {link.name}
             </a>
           ))}
-          <Link to="/login" onClick={() => setIsMenuOpen(false)}>Login</Link>
-          <Link to="/pricing" className="btn btn-primary" onClick={() => setIsMenuOpen(false)}>Get Started</Link>
+          {user ? (
+            <>
+              <Link to="/dashboard" onClick={() => setIsMenuOpen(false)}>Dashboard</Link>
+              <button className="btn btn-ghost" onClick={() => { setIsMenuOpen(false); logout(); }}>Sign out</button>
+            </>
+          ) : (
+            <>
+              <Link to="/login" onClick={() => setIsMenuOpen(false)}>Login</Link>
+              <Link to="/pricing" className="btn btn-primary" onClick={() => setIsMenuOpen(false)}>Get Started</Link>
+            </>
+          )}
         </div>
       )}
 
@@ -122,7 +148,20 @@ const Navbar = () => {
           padding: 8px 18px;
           font-size: 13px;
           border-radius: 7px;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
         }
+        .btn-ghost {
+          background: transparent;
+          border: none;
+          color: var(--text2);
+          cursor: pointer;
+          font-family: var(--sans);
+          font-weight: 600;
+          transition: color 0.2s;
+        }
+        .btn-ghost:hover { color: var(--text); }
         .hamburger {
           display: none;
           background: none;

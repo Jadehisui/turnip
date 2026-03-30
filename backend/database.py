@@ -93,6 +93,17 @@ def db_init():
             CREATE INDEX IF NOT EXISTS idx_dev_email     ON subscription_devices(email);
             CREATE INDEX IF NOT EXISTS idx_pay_reference ON payments(reference);
             CREATE INDEX IF NOT EXISTS idx_users_email   ON users(email);
+
+            CREATE TABLE IF NOT EXISTS login_tokens (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                email      TEXT NOT NULL,
+                token      TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                used       INTEGER NOT NULL DEFAULT 0,
+                attempts   INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_login_tokens_email ON login_tokens(email);
         """)
         # Migrate existing DBs that lack server_region column
         try:
@@ -100,6 +111,51 @@ def db_init():
         except Exception:
             pass  # column already exists
     log.info(f"Database initialised at {DB_PATH}")
+
+
+# ── OTP / Login token helpers ──────────────────────────────────────────────────
+
+def create_login_token(email: str) -> str:
+    """Invalidate previous unused tokens, generate a fresh 6-digit OTP, store it."""
+    import random
+    code       = f"{random.SystemRandom().randint(0, 999999):06d}"
+    expires_at = (datetime.utcnow() + timedelta(minutes=10)).isoformat()
+    with get_conn() as conn:
+        conn.execute("UPDATE login_tokens SET used=1 WHERE email=? AND used=0", (email.lower(),))
+        conn.execute(
+            "INSERT INTO login_tokens (email, token, expires_at) VALUES (?, ?, ?)",
+            (email.lower(), code, expires_at),
+        )
+    return code
+
+
+def verify_login_token(email: str, code: str) -> bool:
+    """Return True and mark used if (email, code) matches a valid, unused, unexpired token.
+    Increments attempt counter; rejects after 5 failed attempts.
+    """
+    email = email.lower()
+    now   = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT id, token, attempts FROM login_tokens
+            WHERE email=? AND used=0 AND expires_at > ?
+            ORDER BY id DESC LIMIT 1
+            """,
+            (email, now),
+        ).fetchone()
+        if not row:
+            return False
+        if row["attempts"] >= 5:
+            return False  # brute-force lockout
+        if row["token"] != code:
+            conn.execute(
+                "UPDATE login_tokens SET attempts=attempts+1 WHERE id=?",
+                (row["id"],),
+            )
+            return False
+        conn.execute("UPDATE login_tokens SET used=1 WHERE id=?", (row["id"],))
+        return True
 
 
 # ── Write operations ───────────────────────────────────────────────────────────
@@ -116,6 +172,7 @@ def record_payment(
     devices: list = None,
 ):
     """Record a confirmed payment and create/extend a subscription."""
+    email      = email.strip().lower()  # normalise before storage
     expires_at = (datetime.utcnow() + timedelta(days=duration_days)).isoformat()
     now        = datetime.utcnow().isoformat()
 

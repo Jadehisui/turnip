@@ -47,61 +47,120 @@ def send_welcome_email(to_email: str, creds: dict, plan: dict):
 
 
 def send_user_welcome_email(user_name: str, user_email: str):
-    """Send a welcome email to the newly registered user directing them to pick a plan."""
+    """Send a styled welcome email directing the new user to pick a plan."""
     site_url = os.environ.get("SITE_URL", "https://turnipvpn.site")
-    subject  = "Welcome to Turnip VPN — pick your plan to get started"
+    subject  = "Your account is ready"
     text = (
         f"Hi {user_name},\n\n"
-        f"Your Turnip VPN account has been created successfully.\n\n"
-        f"Next step: choose a plan to activate your VPN connection.\n"
+        f"Your Turnip VPN account has been created.\n\n"
+        f"Next step — pick a plan to activate your connection:\n"
         f"{site_url}/pricing\n\n"
-        f"Once payment is confirmed your VPN credentials will be delivered\n"
-        f"to this email address automatically.\n\n"
-        f"— The Turnip VPN Team"
+        f"Once your payment clears, your VPN credentials will be\n"
+        f"sent to this address automatically.\n\n"
+        f"— Turnip VPN\n"
+        f"  {site_url}"
     )
     html = f"""<!DOCTYPE html>
-<html>
-<head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>
-<body style=\"margin:0;padding:0;background:#0a0f1e;font-family:sans-serif\">
-  <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\">
-    <tr><td align=\"center\" style=\"padding:40px 16px\">
-      <table width=\"560\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#111827;border-radius:16px;overflow:hidden;border:1px solid #1f2937\">
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Your account is ready</title>
+</head>
+<body style="margin:0;padding:0;background:#020205;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#020205;padding:40px 16px">
+    <tr><td align="center">
+      <table width="540" cellpadding="0" cellspacing="0" style="background:#080812;border-radius:16px;overflow:hidden;border:1px solid rgba(168,85,247,0.18)">
+
         <!-- Header -->
-        <tr><td style=\"background:#059669;padding:28px 36px\">
-          <h1 style=\"margin:0;color:#fff;font-size:22px;font-weight:800\">Turnip<span style=\"color:#d1fae5\">VPN</span></h1>
-        </td></tr>
+        <tr>
+          <td style="background:#0c0c1e;padding:28px 40px;border-bottom:1px solid rgba(168,85,247,0.18)">
+            <span style="font-size:20px;font-weight:800;color:#f8fafc;letter-spacing:-0.5px;font-family:Arial,sans-serif">
+              Turnip<span style="color:#a855f7">VPN</span>
+            </span>
+          </td>
+        </tr>
+
         <!-- Body -->
-        <tr><td style=\"padding:36px\">
-          <p style=\"margin:0 0 8px;color:#9ca3af;font-size:13px;text-transform:uppercase;letter-spacing:.08em\">Welcome aboard</p>
-          <h2 style=\"margin:0 0 20px;color:#f9fafb;font-size:24px\">Hi {user_name} 👋</h2>
-          <p style=\"color:#d1d5db;font-size:15px;line-height:1.6;margin:0 0 24px\">
-            Your Turnip VPN account has been created. You're one step away from a fast, private internet connection.
-          </p>
-          <table cellpadding=\"0\" cellspacing=\"0\" style=\"margin-bottom:28px\">
-            <tr>
-              <td style=\"background:#0a0f1e;border:1px solid #1f2937;border-radius:10px;padding:18px 20px\">
-                <p style=\"margin:0 0 6px;color:#6b7280;font-size:12px;font-weight:700;text-transform:uppercase\">Registered email</p>
-                <p style=\"margin:0;color:#f9fafb;font-family:monospace;font-size:15px\">{user_email}</p>
-              </td>
-            </tr>
-          </table>
-          <p style=\"color:#d1d5db;font-size:14px;line-height:1.6;margin:0 0 28px\">
-            <strong style=\"color:#f9fafb\">Next step:</strong> choose a plan below. Once your payment is confirmed,
-            your VPN credentials will be sent to this email automatically.
-          </p>
-          <a href=\"{site_url}/pricing\" style=\"
-            display:inline-block;background:#059669;color:#fff;
-            text-decoration:none;padding:14px 32px;border-radius:8px;
-            font-weight:800;font-size:15px\">View Plans &amp; Get Started →</a>
-        </td></tr>
+        <tr>
+          <td style="padding:40px">
+            <p style="margin:0 0 8px;font-size:11px;font-weight:700;color:#a855f7;text-transform:uppercase;letter-spacing:.12em;font-family:'Courier New',monospace">Account created</p>
+            <h1 style="margin:0 0 18px;font-size:26px;font-weight:800;color:#f8fafc;letter-spacing:-0.5px">Hi {user_name}, you're in.</h1>
+            <p style="margin:0 0 28px;font-size:15px;color:#94a3b8;line-height:1.7">
+              Your Turnip VPN account has been created successfully.<br>
+              You're one step away from a fast, private internet connection.
+            </p>
+
+            <!-- Email info box -->
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#0c0c1e;border:1px solid rgba(168,85,247,0.20);border-radius:10px;margin-bottom:28px">
+              <tr>
+                <td style="padding:18px 22px">
+                  <p style="margin:0 0 5px;font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.1em;font-family:'Courier New',monospace">Registered email</p>
+                  <p style="margin:0;font-size:14px;font-weight:600;color:#f8fafc;font-family:'Courier New',monospace">{user_email}</p>
+                </td>
+              </tr>
+            </table>
+
+            <p style="margin:0 0 28px;font-size:14px;color:#94a3b8;line-height:1.7">
+              <strong style="color:#f8fafc">Next step:</strong> choose a plan below.
+              Once your payment is confirmed, your credentials will be delivered to this email automatically — no waiting.
+            </p>
+
+            <!-- CTA button -->
+            <table cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="background:#a855f7;border-radius:8px">
+                  <a href="{site_url}/pricing"
+                     style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:800;color:#ffffff;text-decoration:none;letter-spacing:-0.2px;font-family:Arial,sans-serif">
+                    View plans &amp; get started →
+                  </a>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- Divider -->
+        <tr><td style="padding:0 40px"><div style="height:1px;background:rgba(168,85,247,0.12)"></div></td></tr>
+
+        <!-- Feature strip -->
+        <tr>
+          <td style="padding:24px 40px">
+            <table width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td width="33%" style="padding-right:12px;vertical-align:top">
+                  <p style="margin:0 0 4px;font-size:12px;font-weight:700;color:#f8fafc;font-family:'Courier New',monospace">AES-256</p>
+                  <p style="margin:0;font-size:12px;color:#475569">Military-grade encryption</p>
+                </td>
+                <td width="33%" style="padding-right:12px;vertical-align:top">
+                  <p style="margin:0 0 4px;font-size:12px;font-weight:700;color:#f8fafc;font-family:'Courier New',monospace">Zero logs</p>
+                  <p style="margin:0;font-size:12px;color:#475569">No traffic records kept</p>
+                </td>
+                <td width="33%" style="vertical-align:top">
+                  <p style="margin:0 0 4px;font-size:12px;font-weight:700;color:#f8fafc;font-family:'Courier New',monospace">IKEv2/IPsec</p>
+                  <p style="margin:0;font-size:12px;color:#475569">Native OS, no app needed</p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
         <!-- Footer -->
-        <tr><td style=\"padding:20px 36px;border-top:1px solid #1f2937\">
-          <p style=\"margin:0;color:#4b5563;font-size:12px\">Turnip VPN · You're receiving this because you just registered.</p>
-        </td></tr>
+        <tr>
+          <td style="background:#0c0c1e;padding:20px 40px;border-top:1px solid rgba(168,85,247,0.12)">
+            <p style="margin:0;font-size:12px;color:#475569;line-height:1.7">
+              You're receiving this because you registered at
+              <a href="{site_url}" style="color:#a855f7;text-decoration:none">turnipvpn.site</a>.
+              Questions? Reply to this email.
+            </p>
+          </td>
+        </tr>
+
       </table>
     </td></tr>
   </table>
-</body></html>"""
+</body>
+</html>"""
     try:
         if EMAIL_PROVIDER == "sendgrid":
             _send_simple_sendgrid(user_email, subject, html, text)
@@ -110,6 +169,74 @@ def send_user_welcome_email(user_name: str, user_email: str):
         log.info(f"Welcome email sent to {user_email}")
     except Exception as e:
         log.error(f"Failed to send welcome email to {user_email}: {e}")
+
+
+def send_otp_email(to_email: str, code: str):
+    """Send a 6-digit OTP login code. Expires in 10 minutes."""
+    site_url = os.environ.get("SITE_URL", "https://turnipvpn.site")
+    subject  = f"{code} is your TurnipVPN login code"
+    text = (
+        f"Your TurnipVPN login code is: {code}\n\n"
+        f"This code expires in 10 minutes.\n"
+        f"If you did not request this, you can safely ignore this email.\n\n"
+        f"— Turnip VPN\n  {site_url}"
+    )
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Your login code</title></head>
+<body style="margin:0;padding:0;background:#f0f0f5;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f0f5;padding:40px 16px">
+    <tr><td align="center">
+      <table width="480" cellpadding="0" cellspacing="0" style="background:#080812;border-radius:16px;overflow:hidden;border:1px solid rgba(168,85,247,0.18)">
+        <tr>
+          <td style="background:#0c0c1e;padding:24px 36px;border-bottom:1px solid rgba(168,85,247,0.18)">
+            <span style="font-size:18px;font-weight:800;color:#f8fafc;letter-spacing:-0.5px;font-family:Arial,sans-serif">
+              Turnip<span style="color:#a855f7">VPN</span>
+            </span>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:36px">
+            <p style="margin:0 0 6px;font-size:11px;font-weight:700;color:#a855f7;text-transform:uppercase;letter-spacing:.12em;font-family:'Courier New',monospace">Login code</p>
+            <h1 style="margin:0 0 20px;font-size:22px;font-weight:800;color:#f8fafc">Verify your identity</h1>
+            <p style="margin:0 0 28px;font-size:14px;color:#94a3b8;line-height:1.7">
+              Use the code below to sign in to your TurnipVPN account.<br>
+              It expires in <strong style="color:#f8fafc">10 minutes</strong>.
+            </p>
+            <table cellpadding="0" cellspacing="0" style="margin:0 auto 28px">
+              <tr>
+                <td style="background:#0c0c1e;border:2px solid rgba(168,85,247,0.4);border-radius:12px;padding:18px 40px;text-align:center">
+                  <span style="font-size:36px;font-weight:900;letter-spacing:10px;color:#a855f7;font-family:'Courier New',monospace">{code}</span>
+                </td>
+              </tr>
+            </table>
+            <p style="margin:0;font-size:12px;color:#475569;line-height:1.7;text-align:center">
+              If you did not request this code, ignore this email — your account is safe.
+            </p>
+          </td>
+        </tr>
+        <tr>
+          <td style="background:#0c0c1e;padding:16px 36px;border-top:1px solid rgba(168,85,247,0.12)">
+            <p style="margin:0;font-size:11px;color:#475569">
+              <a href="{site_url}" style="color:#a855f7;text-decoration:none">turnipvpn.site</a>
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>"""
+    try:
+        if EMAIL_PROVIDER == "sendgrid":
+            _send_simple_sendgrid(to_email, subject, html, text)
+        else:
+            _send_simple_smtp(to_email, subject, html, text)
+        log.info(f"OTP email sent to {to_email}")
+    except Exception as e:
+        log.error(f"Failed to send OTP email to {to_email}: {e}")
+        raise
 
 
 def send_registration_notification(user_name: str, user_email: str):

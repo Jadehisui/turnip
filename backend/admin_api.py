@@ -18,7 +18,7 @@ load_dotenv()
 
 import sys
 sys.path.insert(0, os.path.dirname(__file__))
-from database import db_init, get_all_users, get_all_subscriptions
+from database import db_init, get_all_subscriptions
 
 from multiserver import (
     load_servers,
@@ -36,7 +36,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [admin_api] %(leveln
 log = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+CORS(app, resources={r"/api/*": {"origins": [
+    "http://127.0.0.1:8765",
+    "http://localhost:8765",
+    os.environ.get("ADMIN_ORIGIN", "http://127.0.0.1:8765"),
+]}})
 
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 db_init()
@@ -155,6 +159,15 @@ def get_status():
     net_raw, _, _ = _ssh_run(host, "cat /proc/net/dev")
     rx_gb, tx_gb = _parse_proc_net(net_raw)
 
+    # ── Disk (used + total GB) ────────────────────────────────────────────────
+    disk_raw, _, _ = _ssh_run(host, "df / | tail -1")
+    disk_parts = disk_raw.split()
+    try:
+        disk_total_gb = round(int(disk_parts[1]) / (1024 ** 2), 1) if len(disk_parts) > 1 else 0
+        disk_used_gb  = round(int(disk_parts[2]) / (1024 ** 2), 1) if len(disk_parts) > 2 else 0
+    except (ValueError, IndexError):
+        disk_total_gb = disk_used_gb = 0
+
     # ── Active tunnels ────────────────────────────────────────────────────────
     ipsec_raw, _, _ = _ssh_run(host, "ipsec status 2>/dev/null")
     tunnels = _parse_tunnels(ipsec_raw)
@@ -174,6 +187,8 @@ def get_status():
             "net_tx_gb":   tx_gb,
             "uptime_sec":  uptime_sec,
             "disk_pct":    disk_pct,
+            "disk_used_gb":  disk_used_gb,
+            "disk_total_gb": disk_total_gb,
         },
     })
 
@@ -190,8 +205,8 @@ def list_users():
     ipsec_raw, _, _ = _ssh_run(host, "ipsec status 2>/dev/null")
     online = {t["identity"] for t in _parse_tunnels(ipsec_raw)}
 
-    users = [{"username": u, "online": u in online} for u in sorted(usernames)]
-    return jsonify({"users": users})
+    users = [{'username': u, 'online': u in online} for u in sorted(usernames)]
+    return jsonify({'users': users, 'total': len(usernames), 'max': MAX_PER_SERVER})
 
 
 @app.route("/api/users", methods=["POST"])
@@ -250,8 +265,20 @@ def list_servers():
 def list_subscribers():
     _require_auth()
     try:
-        users = get_all_users()
-        return jsonify({"subscribers": users, "total": len(users)})
+        subs = get_all_subscriptions()
+        # Slim down the response — don't expose raw passwords over the wire
+        safe = [
+            {
+                "email":      s["email"],
+                "username":   s["username"],
+                "plan_name":  s["plan_name"],
+                "status":     s["status"],
+                "expires_at": s["expires_at"],
+                "created_at": s["created_at"],
+            }
+            for s in subs
+        ]
+        return jsonify({"subscribers": safe, "total": len(safe)})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

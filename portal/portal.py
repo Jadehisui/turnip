@@ -18,7 +18,7 @@ Routes:
 Run: gunicorn -w 2 -b 0.0.0.0:8767 portal:app
 """
 
-import os, secrets, hashlib, logging, base64, threading
+import os, secrets, hashlib, logging, base64
 from datetime import datetime, timedelta
 from functools import wraps
 
@@ -46,15 +46,19 @@ log = logging.getLogger(__name__)
 # Import shared modules from payment backend
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../backend"))
-from database import db_init, get_subscription, get_all_subscriptions, record_payment, get_devices_for_email, register_user, get_user
+from database import db_init, get_subscription, get_all_subscriptions, record_payment, get_devices_for_email, register_user, get_user, create_login_token, verify_login_token
 from provisioner import provision_user, deprovision_user, generate_password, generate_mobileconfig, get_plan_for_amount, get_server_host, PLANS, CA_CERT_PATH, SERVERS
-from emailer import send_registration_notification, send_user_welcome_email
+from emailer import send_registration_notification, send_user_welcome_email, send_otp_email
 
 app = Flask(__name__, 
             static_folder='frontend/dist', 
             template_folder='frontend/dist')
 app.secret_key      = os.environ.get("PORTAL_SECRET_KEY", secrets.token_hex(32))
 app.permanent_session_lifetime = timedelta(hours=12)
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+if os.environ.get("SITE_URL", "").startswith("https://"):
+    app.config["SESSION_COOKIE_SECURE"] = True
 
 db_init()  # ensure tables exist whether running via gunicorn or directly
 
@@ -76,6 +80,8 @@ def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if "email" not in session:
+            if request.path.startswith('/api/'):
+                return jsonify({"error": "Authentication required"}), 401
             return redirect(url_for("login_page"))
         return f(*args, **kwargs)
     return decorated
@@ -139,20 +145,52 @@ def login_page():
 
 @app.route("/api/auth/login", methods=["POST"])
 def api_login():
-    data = request.get_json()
+    data  = request.get_json() or {}
     email = data.get("email", "").strip().lower()
     if not email or "@" not in email:
         return jsonify({"error": "Enter a valid email address"}), 400
 
-    sub = get_subscription(email=email)
-    if not sub:
-        return jsonify({"error": "No account found with this email. Please check your plans."}), 404
+    # Verify this email belongs to a known account before sending an OTP
+    sub  = get_subscription(email=email)
+    user = get_user(email=email) if not sub else None
+    if not sub and not user:
+        return jsonify({"error": "No account found with this email. Please register first."}), 404
 
-    # Set session
+    # Generate OTP and email it — session is only set after verification
+    try:
+        code = create_login_token(email)
+        send_otp_email(email, code)
+    except Exception as e:
+        log.error(f"OTP send failed for {email}: {e}")
+        return jsonify({"error": "Could not send login code. Please try again."}), 500
+
+    log.info(f"OTP sent to {email}")
+    return jsonify({"step": "otp", "email": email})
+
+
+@app.route("/api/auth/verify-otp", methods=["POST"])
+def api_verify_otp():
+    data  = request.get_json() or {}
+    email = data.get("email", "").strip().lower()
+    code  = data.get("code", "").strip()
+
+    if not email or not code:
+        return jsonify({"error": "Email and code are required"}), 400
+
+    if not verify_login_token(email, code):
+        return jsonify({"error": "Invalid or expired code. Please try again."}), 401
+
+    # Token verified — establish session
     session.permanent = True
     session["email"]  = email
-    log.info(f"API Login: {email}")
-    return jsonify({"ok": True, "email": email})
+
+    sub = get_subscription(email=email)
+    if sub:
+        log.info(f"OTP login (sub): {email}")
+        return jsonify({"ok": True, "email": email, "redirect": "/dashboard"})
+
+    log.info(f"OTP login (no sub): {email}")
+    return jsonify({"ok": True, "email": email, "redirect": "/pricing"})
 
 
 @app.route("/api/auth/register", methods=["POST"])
@@ -166,21 +204,17 @@ def api_register():
     if not email or "@" not in email:
         return jsonify({"error": "Enter a valid email address"}), 400
 
-    # If they already have a subscription, just log them in
-    sub = get_subscription(email=email)
-    if sub:
-        session.permanent = True
-        session["email"]  = email
-        return jsonify({"ok": True, "email": email, "redirect": "/dashboard"})
-
-    # If already registered but no subscription — sign them in and send to pricing
-    # (handles retry after a previous server error that still committed the DB row)
+    # If an account already exists for this email, don't log them in without OTP.
+    # Tell the frontend to switch to the Sign In tab instead.
+    sub      = get_subscription(email=email)
     existing = get_user(email=email)
-    if existing:
-        session.permanent = True
-        session["email"]  = email
-        log.info(f"Re-login for registered user (no sub): {email}")
-        return jsonify({"ok": True, "email": email, "redirect": "/pricing"})
+    if sub or existing:
+        log.info(f"Register attempt for existing account: {email}")
+        return jsonify({
+            "error": "An account with this email already exists. Use Sign In to continue.",
+            "switch_to_signin": True,
+            "email": email,
+        }), 409
 
     try:
         register_user(name=name, email=email)
@@ -194,66 +228,34 @@ def api_register():
 
     log.info(f"New user registered: {name} <{email}>")
 
-    # Send emails in background so they never block or crash the response
-    def _send_emails():
-        try:
-            send_user_welcome_email(user_name=name, user_email=email)
-        except Exception as e:
-            log.error(f"Welcome email failed: {e}")
-        try:
-            send_registration_notification(user_name=name, user_email=email)
-        except Exception as e:
-            log.error(f"Admin notification failed: {e}")
+    # Send emails synchronously — registration is a low-frequency path and
+    # SMTP (port 465) completes in <1 s. Threading with daemon=True/False is
+    # unsafe here because gunicorn SIGTERM kills the worker mid-send.
+    try:
+        send_user_welcome_email(user_name=name, user_email=email)
+    except Exception as e:
+        log.error(f"Welcome email failed: {e}")
 
-    threading.Thread(target=_send_emails, daemon=True).start()
+    try:
+        send_registration_notification(user_name=name, user_email=email)
+    except Exception as e:
+        log.error(f"Admin notification failed: {e}")
 
     return jsonify({"ok": True, "email": email, "redirect": "/pricing"})
 
 
-@app.route("/login", methods=["POST"])
-def login_post():
-    email = request.form.get("email", "").strip().lower()
-    if not email or "@" not in email:
-        return redirect(url_for("login_page", error="Enter a valid email address"))
-
-    sub = get_subscription(email=email)
-    if not sub:
-        # Don't reveal whether account exists — send magic link feel
-        return render_template_string(LOGIN_CHECK_EMAIL_TEMPLATE, email=email)
-
-    # Set session
-    session.permanent = True
-    session["email"]  = email
-    log.info(f"Login: {email}")
-    return redirect(url_for("dashboard"))
-
-
 @app.route("/logout")
 def logout():
-    email = session.pop("email", "")
+    email = session.get("email", "")
+    session.clear()
     log.info(f"Logout: {email}")
     return redirect("/login")
 
 
 @app.route("/dashboard")
-@login_required
 def dashboard():
-    sub = get_current_user()
-    if not sub:
-        session.pop("email", "")
-        return redirect(url_for("login_page", error="Account not found"))
-
-    days = days_remaining(sub.get("expires_at", ""))
-    status = sub.get("status", "active")
-
-    return render_template_string(
-        DASHBOARD_TEMPLATE,
-        sub=sub,
-        days=days,
-        status=status,
-        server=VPN_SERVER_ADDR,
-        plans=PLANS,
-    )
+    # Dashboard UI is handled by the React SPA
+    return send_from_directory(app.static_folder, 'index.html')
 
 
 @app.route("/download/profile")
@@ -340,6 +342,25 @@ def regenerate_password():
     return jsonify({"ok": True, "password": new_password})
 
 
+@app.route("/api/terminate", methods=["POST"])
+@login_required
+def terminate_subscription():
+    """Disable the user's subscription and log them out."""
+    sub = get_current_user()
+    if not sub:
+        return jsonify({"error": "No active subscription"}), 404
+    from database import get_conn
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE subscriptions SET status='disabled', updated_at=datetime('now') WHERE email=?",
+            (sub["email"],)
+        )
+    email = session.get("email", "")
+    session.clear()
+    log.info(f"Subscription terminated by user: {email}")
+    return jsonify({"ok": True})
+
+
 def _ls_checkout_url(email: str, plan_code: str, region: str = "eu") -> str:
     """Build a Lemon Squeezy checkout URL with pre-filled email and custom data."""
     from urllib.parse import urlencode
@@ -372,7 +393,7 @@ def initiate_payment():
         return jsonify({"ok": True, "payment_url": payment_url})
     except ValueError as e:
         log.error(f"LS checkout URL error: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": str(e)}), 500 
 
 
 @app.route("/api/pay/public/initiate", methods=["POST"])
@@ -477,6 +498,50 @@ def pricing():
     return send_from_directory(app.static_folder, 'index.html')
 
 
+@app.route("/api/plans")
+def get_plans():
+    """Return plan definitions with both NGN and USD pricing for the pricing page."""
+    plans = [
+        {
+            "code":      "basic",
+            "name":      "Basic",
+            "price_ngn": 4999,
+            "price_usd": 4.99,
+            "amount_ngn": 4999,
+            "amount_ngn_intl": 7984,
+            "devices":   1,
+            "period":    "1 device · 30 days",
+            "features":  ["1 device", "AES-256 encryption", "2 server regions", "Zero traffic logs", "Email support"],
+            "featured":  False,
+        },
+        {
+            "code":      "pro",
+            "name":      "Pro",
+            "price_ngn": 7999,
+            "price_usd": 7.99,
+            "amount_ngn": 7999,
+            "amount_ngn_intl": 12784,
+            "devices":   5,
+            "period":    "5 devices · 30 days",
+            "features":  ["5 devices", "AES-256 encryption", "All 4 server regions", "Zero traffic logs", "Priority support", "Custom VPN profiles"],
+            "featured":  True,
+        },
+        {
+            "code":      "business",
+            "name":      "Business",
+            "price_ngn": 19999,
+            "price_usd": 19.99,
+            "amount_ngn": 19999,
+            "amount_ngn_intl": 31984,
+            "devices":   10,
+            "period":    "Up to 10 devices · 30 days",
+            "features":  ["Up to 10 devices", "AES-256 encryption", "All 4 server regions", "Zero traffic logs", "Dedicated support", "Multi-server sync"],
+            "featured":  False,
+        },
+    ]
+    return jsonify({"plans": plans})
+
+
 @app.route("/api/servers")
 def get_servers():
     """Return the list of active VPN server regions for the region picker UI."""
@@ -575,7 +640,7 @@ LOGIN_TEMPLATE = """<!DOCTYPE html>
 </style>
 <div class="wrap">
   <div class="box">
-    <div style="font-size:22px;font-weight:800;text-align:center;margin-bottom:.5rem">Secure<span style="color:var(--accent)">Fast</span></div>
+    <div style="font-size:22px;font-weight:800;text-align:center;margin-bottom:.5rem">Turnip<span style="color:var(--accent)">VPN</span></div>
     <div style="text-align:center;color:var(--text2);font-size:13px;margin-bottom:2rem">Sign in to your VPN account</div>
     <div class="err">{{ error }}</div>
     <form method="POST" action="/login">
@@ -637,300 +702,14 @@ async function connectWallet() {
 </script>
 </body></html>"""
 
-LOGIN_CHECK_EMAIL_TEMPLATE = """<!DOCTYPE html>
-<html>
-<head>""" + _BASE_STYLE + """<title>Turnip VPN — Check your email</title></head>
-<body>
-<style>
-.wrap{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:2rem}
-.box{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:2.5rem;width:100%;max-width:400px;text-align:center}
-</style>
-<div class="wrap">
-  <div class="box">
-    <div style="font-size:36px;margin-bottom:1rem">🔒</div>
-    <div style="font-size:18px;font-weight:700;margin-bottom:.75rem">No account found</div>
-    <div style="color:var(--text2);font-size:14px;line-height:1.7;margin-bottom:1.5rem">
-      No active subscription found for <strong style="color:var(--text)">{{ email }}</strong>.<br>
-      Purchase a plan to create your account.
-    </div>
-    <a href="/pricing" class="btn btn-accent" style="display:block;padding:12px;text-align:center;font-size:14px">View plans →</a>
-    <a href="/login" style="display:block;margin-top:12px;font-size:12px;color:var(--text3)">Try a different email</a>
-  </div>
-</div>
-</body></html>"""
 
+# ─────────────────────────────────────────────────────────────────────────────
+# (Pricing is served by the React SPA — no Jinja2 template needed)
+# ─────────────────────────────────────────────────────────────────────────────
 
-# ── Dashboard template ────────────────────────────────────────────────────────
-
-DASHBOARD_TEMPLATE = """<!DOCTYPE html>
-<html>
-<head>""" + _BASE_STYLE + """<title>Turnip VPN — Dashboard</title></head>
-<body>
-<style>
-.content{max-width:860px;margin:0 auto;padding:2rem}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
-.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px}
-.metric{background:var(--surf);border:1px solid var(--border);border-radius:10px;padding:1.1rem 1.25rem}
-.metric-lbl{font-size:10px;color:var(--text3);font-weight:700;letter-spacing:.07em;text-transform:uppercase;margin-bottom:8px}
-.metric-val{font-size:24px;font-weight:800;font-family:var(--mono);letter-spacing:-1px}
-.metric-sub{font-size:11px;color:var(--text2);margin-top:3px}
-.badge{font-family:var(--mono);font-size:10px;font-weight:700;padding:3px 9px;border-radius:4px}
-.badge-green{background:var(--adim);color:var(--accent);border:1px solid var(--border2)}
-.badge-amber{background:rgba(255,184,48,.1);color:var(--amber);border:1px solid rgba(255,184,48,.25)}
-.badge-red{background:rgba(255,71,87,.1);color:var(--red);border:1px solid rgba(255,71,87,.25)}
-.cred-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)}
-.cred-row:last-child{border-bottom:none}
-.cred-lbl{font-size:10px;color:var(--text3);font-weight:700;letter-spacing:.08em;text-transform:uppercase;min-width:90px}
-.cred-val{font-family:var(--mono);font-size:12px;color:var(--text);flex:1;padding:0 8px;word-break:break-all}
-.copy-btn{background:transparent;border:1px solid var(--border2);color:var(--accent);font-size:10px;font-family:var(--mono);padding:3px 9px;border-radius:4px;cursor:pointer;white-space:nowrap}
-.copy-btn:hover{background:var(--adim)}
-.os-tab{padding:10px 16px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--text2);transition:all .15s}
-.os-tab.active,.os-tab:hover{border-color:var(--accent);color:var(--accent);background:var(--adim)}
-.setup-step{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);font-size:13px;color:var(--text2)}
-.setup-step:last-child{border-bottom:none}
-.step-n{font-family:var(--mono);font-size:11px;color:var(--accent);min-width:20px;padding-top:1px}
-.os-panel{display:none}.os-panel.active{display:block}
-.plan-bar{height:6px;background:var(--bg3);border-radius:3px;overflow:hidden;margin-top:8px}
-.plan-fill{height:100%;border-radius:3px;background:var(--accent);transition:width .5s}
-</style>
-
-<nav class="nav">
-  <div class="logo">Secure<span>Fast</span></div>
-  <div class="nav-right">
-    <span style="font-size:12px;color:var(--text2)">{{ sub.email }}</span>
-    <a href="/logout" class="btn btn-danger">Sign out</a>
-  </div>
-</nav>
-
-<div class="content">
-
-  <!-- Status row -->
-  <div class="grid3">
-    <div class="metric">
-      <div class="metric-lbl">Plan</div>
-      <div class="metric-val" style="font-size:18px;padding-top:4px">{{ sub.plan_name }}</div>
-      <div class="metric-sub">
-        {% if status == 'active' %}<span class="badge badge-green">ACTIVE</span>
-        {% elif status == 'non_renewing' %}<span class="badge badge-amber">ACTIVE · NOT RENEWING</span>
-        {% else %}<span class="badge badge-red">{{ status.upper() }}</span>{% endif %}
-      </div>
-    </div>
-    <div class="metric">
-      <div class="metric-lbl">Days remaining</div>
-      <div class="metric-val" style="{% if days <= 3 %}color:var(--red){% elif days <= 7 %}color:var(--amber){% else %}color:var(--accent){% endif %}">{{ days }}</div>
-      <div class="plan-bar"><div class="plan-fill" style="width:{{ [days * 100 // 30, 100] | min }}%"></div></div>
-    </div>
-    <div class="metric">
-      <div class="metric-lbl">Expires</div>
-      <div class="metric-val" style="font-size:16px;padding-top:6px">{{ sub.expires_at[:10] }}</div>
-      <div class="metric-sub">UTC</div>
-    </div>
-  </div>
-
-  <!-- Wallet Association -->
-  <div class="card" style="margin-bottom:16px; border-color: {% if sub.wallet_address %}var(--border){% else %}var(--blue){% endif %};">
-    <div style="display:flex; align-items:center; justify-content:space-between;">
-      <div>
-        <div style="font-size:14px; font-weight:700;">Linked Wallet</div>
-        <div style="font-size:12px; color:var(--text2);">
-          {% if sub.wallet_address %}
-            <span class="mono">{{ sub.wallet_address[:6] }}...{{ sub.wallet_address[-4:] }}</span>
-          {% else %}
-            No wallet linked. Link your wallet for one-tap login and crypto payments.
-          {% endif %}
-        </div>
-      </div>
-      {% if not sub.wallet_address %}
-        <button class="btn btn-wallet" style="width:auto; margin-top:0;" onclick="connectWallet()">Link Wallet</button>
-      {% endif %}
-    </div>
-  </div>
-
-  <div class="grid2">
-
-    <!-- Credentials -->
-    <div class="card">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem">
-        <div style="font-size:14px;font-weight:700">VPN credentials</div>
-        <button class="btn" style="font-size:11px;padding:6px 12px" onclick="regenerate()">Regenerate ↺</button>
-      </div>
-      <div class="cred-row">
-        <div class="cred-lbl">Username</div>
-        <div class="cred-val" id="cv-user">{{ sub.username }}</div>
-        <button class="copy-btn" onclick="copy('cv-user', this)">Copy</button>
-      </div>
-      <div class="cred-row">
-        <div class="cred-lbl">Password</div>
-        <div class="cred-val" id="cv-pass" style="filter:blur(4px);transition:filter .2s">{{ sub.password }}</div>
-        <button class="copy-btn" onclick="reveal('cv-pass', this)">Show</button>
-      </div>
-      <div class="cred-row">
-        <div class="cred-lbl">Server</div>
-        <div class="cred-val" id="cv-srv">{{ server }}</div>
-        <button class="copy-btn" onclick="copy('cv-srv', this)">Copy</button>
-      </div>
-      <div class="cred-row">
-        <div class="cred-lbl">VPN type</div>
-        <div class="cred-val" style="color:var(--text2)">IKEv2 / IPsec · EAP-MSCHAPv2</div>
-      </div>
-      <div style="display:flex;gap:8px;margin-top:1.25rem;padding-top:1.25rem;border-top:1px solid var(--border)">
-        <a href="/download/profile" class="btn btn-accent" style="flex:1;text-align:center;font-size:13px">⬇ Download .mobileconfig</a>
-        <a href="/download/ca" class="btn" style="font-size:13px">CA cert</a>
-      </div>
-    </div>
-
-    <!-- Setup guide -->
-    <div class="card">
-      <div style="font-size:14px;font-weight:700;margin-bottom:1rem">Setup guide</div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:1.25rem">
-        <button class="os-tab active" onclick="showOS('ios', this)">iOS</button>
-        <button class="os-tab" onclick="showOS('macos', this)">macOS</button>
-        <button class="os-tab" onclick="showOS('windows', this)">Windows</button>
-        <button class="os-tab" onclick="showOS('android', this)">Android</button>
-      </div>
-
-      <div id="os-ios" class="os-panel active">
-        <div class="setup-step"><div class="step-n">01</div><div>Download the <strong style="color:var(--text)">.mobileconfig</strong> file above</div></div>
-        <div class="setup-step"><div class="step-n">02</div><div>Tap the file → "Allow" → Settings opens automatically</div></div>
-        <div class="setup-step"><div class="step-n">03</div><div>Settings → <strong style="color:var(--text)">Profile Downloaded</strong> → Install → enter device passcode</div></div>
-        <div class="setup-step"><div class="step-n">04</div><div>Settings → VPN → <strong style="color:var(--text)">Turnip VPN</strong> → toggle ON</div></div>
-      </div>
-
-      <div id="os-macos" class="os-panel">
-        <div class="setup-step"><div class="step-n">01</div><div>Download and double-click the <strong style="color:var(--text)">.mobileconfig</strong> file</div></div>
-        <div class="setup-step"><div class="step-n">02</div><div>System Settings → <strong style="color:var(--text)">Privacy & Security → Profiles → Install</strong></div></div>
-        <div class="setup-step"><div class="step-n">03</div><div>System Settings → VPN → <strong style="color:var(--text)">Turnip VPN</strong> → Connect</div></div>
-      </div>
-
-      <div id="os-windows" class="os-panel">
-        <div class="setup-step"><div class="step-n">01</div><div>Download and install the <strong style="color:var(--text)">CA cert</strong> → certmgr.msc → Trusted Root CAs</div></div>
-        <div class="setup-step"><div class="step-n">02</div><div>Settings → Network → VPN → <strong style="color:var(--text)">Add a VPN connection</strong></div></div>
-        <div class="setup-step"><div class="step-n">03</div><div>Provider: Windows (built-in) · Type: <strong style="color:var(--text)">IKEv2</strong> · Server: <span class="mono" style="color:var(--accent)">{{ server }}</span></div></div>
-        <div class="setup-step"><div class="step-n">04</div><div>Sign-in: Username / Password → enter credentials above</div></div>
-      </div>
-
-      <div id="os-android" class="os-panel">
-        <div class="setup-step"><div class="step-n">01</div><div>Install <strong style="color:var(--text)">strongSwan VPN Client</strong> from Play Store</div></div>
-        <div class="setup-step"><div class="step-n">02</div><div>Add VPN Profile → Server: <span class="mono" style="color:var(--accent)">{{ server }}</span></div></div>
-        <div class="setup-step"><div class="step-n">03</div><div>VPN type: <strong style="color:var(--text)">IKEv2 EAP (Username/Password)</strong></div></div>
-        <div class="setup-step"><div class="step-n">04</div><div>Enter your username and password → Save → Connect</div></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Renew / Upgrade -->
-  {% if days <= 7 or status != 'active' %}
-  <div class="card" style="border-color:rgba(255,184,48,.25);margin-bottom:16px">
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
-      <div>
-        <div style="font-size:14px;font-weight:700;margin-bottom:4px">
-          {% if days == 0 %}Your subscription has expired{% else %}Expiring in {{ days }} day{% if days != 1 %}s{% endif %}{% endif %}
-        </div>
-        <div style="font-size:13px;color:var(--text2)">Renew now to keep your VPN active without interruption.</div>
-      </div>
-      <button class="btn btn-accent" onclick="openRenew()">Renew subscription →</button>
-    </div>
-  </div>
-  {% endif %}
-
-  <!-- Upgrade / plan options -->
-  <div class="card">
-    <div style="font-size:14px;font-weight:700;margin-bottom:1rem">Plans</div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
-      {% for plan in plans %}
-      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:1.25rem;{% if plan.name == sub.plan_name %}border-color:var(--accent){% endif %}">
-        <div style="font-size:10px;font-weight:700;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:.75rem">{{ plan.name }}</div>
-        <div style="font-size:28px;font-weight:800;font-family:var(--mono);letter-spacing:-1px;margin-bottom:.75rem">
-          ₦{{ "{:,.0f}".format(plan.min_amount) }}<span style="font-size:13px;color:var(--text2);font-family:var(--sans);font-weight:400">/mo</span>
-        </div>
-        <div style="font-size:12px;color:var(--text2);margin-bottom:1rem">
-          {% if plan.devices == 999 %}Unlimited devices{% else %}{{ plan.devices }} device{% if plan.devices != 1 %}s{% endif %}{% endif %}
-          · {{ plan.duration_days }} days
-        </div>
-        {% if plan.name == sub.plan_name %}
-          <div style="text-align:center;font-size:11px;font-family:var(--mono);color:var(--accent);padding:7px 0">CURRENT PLAN</div>
-        {% else %}
-          <button class="btn btn-accent" style="width:100%;padding:9px;font-size:12px"
-            onclick="payForPlan({{ plan.min_amount }}, '{{ plan.name.lower() }}')">
-            {% if plan.min_amount > (sub_plan_min_amount | default(4000)) %}Upgrade{% else %}Switch{% endif %} →
-          </button>
-        {% endif %}
-      </div>
-      {% endfor %}
-    </div>
-  </div>
-
-</div>
-
-<script>
-function copy(id, btn) {
-  const text = document.getElementById(id).textContent.trim();
-  navigator.clipboard.writeText(text).then(() => {
-    btn.textContent = 'Copied!';
-    setTimeout(() => btn.textContent = 'Copy', 2000);
-  });
-}
-function reveal(id, btn) {
-  const el = document.getElementById(id);
-  if (el.style.filter) { el.style.filter = ''; btn.textContent = 'Hide'; }
-  else { el.style.filter = 'blur(4px)'; btn.textContent = 'Show'; }
-}
-function showOS(os, btn) {
-  document.querySelectorAll('.os-panel').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.os-tab').forEach(b => b.classList.remove('active'));
-  document.getElementById('os-'+os).classList.add('active');
-  btn.classList.add('active');
-}
-async function regenerate() {
-  if (!confirm('Generate a new password? Your current password will stop working immediately.')) return;
-  const r = await fetch('/api/regenerate', { method:'POST' });
-  const d = await r.json();
-  if (d.ok) {
-    document.getElementById('cv-pass').textContent = d.password;
-    document.getElementById('cv-pass').style.filter = '';
-    alert('Password updated. Re-connect your devices with the new password.');
-  } else { alert(d.error || 'Failed'); }
-}
-async function payForPlan(amount, planCode) {
-  const r = await fetch('/api/pay/initiate', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ amount_ngn: amount, plan_code: planCode })
-  });
-  const d = await r.json();
-  if (d.payment_url) { window.location.href = d.payment_url; }
-  else { alert(d.error || 'Could not initiate payment'); }
-}
-async function connectWallet() {
-  if (!window.ethereum) return alert('Please install MetaMask or another Web3 wallet');
-  try {
-    const provider = new ethers.providers.Web3Provider(window.ethereum);
-    await provider.send("eth_requestAccounts", []);
-    const signer = provider.getSigner();
-    const address = await signer.getAddress();
-    const r1 = await fetch('/api/auth/nonce');
-    const { nonce } = await r1.json();
-    const domain = window.location.host;
-    const origin = window.location.origin;
-    const message = `${domain} wants you to sign in with your Ethereum account:\n${address}\n\nLink wallet to Turnip VPN account\n\nURI: ${origin}\nVersion: 1\nChain ID: 1\nNonce: ${nonce}\nIssued At: ${new Date().toISOString()}`;
-    const signature = await signer.signMessage(message);
-    const r2 = await fetch('/api/auth/wallet', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, signature })
-    });
-    const d2 = await r2.json();
-    if (d2.ok) location.reload();
-    else alert(d2.error || 'Linking failed');
-  } catch (err) { alert(err.message || 'Error'); }
-}
-function openRenew() { payForPlan(4000, 'pro'); }
-</script>
-</body></html>"""
-
-
-# ── Pricing template ──────────────────────────────────────────────────────────
-
-PRICING_TEMPLATE = """<!DOCTYPE html>
+_DELETED_PRICING_TEMPLATE = None  # type: ignore  # was removed — React SPA handles /pricing
+if False:
+    _DELETED_PRICING_TEMPLATE = """<!DOCTYPE html>
 <html>
 <head>""" + _BASE_STYLE + """<title>Turnip VPN — Pricing</title></head>
 <body>
@@ -995,6 +774,7 @@ async function payWithCrypto(amount, planCode) {
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
+# (unreachable block above kept as tombstone — dead code marker)
 
 if __name__ == "__main__":
     log.info("Turnip customer portal starting on :8767")

@@ -1,11 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Check, CreditCard, Wallet, MapPin, Globe } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 const Pricing = () => {
+    const { user } = useAuth();
     const [country, setCountry] = useState(null);
     const [servers, setServers] = useState([]);
+    const [rawPlans, setRawPlans] = useState([]);
     const [region, setRegion] = useState('eu');
+    const [emailPrompt, setEmailPrompt] = useState(null); // { plan, type: 'card'|'crypto' }
+    const [emailValue, setEmailValue] = useState('');
+    const [emailError, setEmailError] = useState('');
+    const [paying, setPaying] = useState(false);
 
     useEffect(() => {
         fetch('/api/geo')
@@ -16,6 +23,11 @@ const Pricing = () => {
         fetch('/api/servers')
             .then(r => r.json())
             .then(d => setServers(d.servers || []))
+            .catch(() => {});
+
+        fetch('/api/plans')
+            .then(r => r.json())
+            .then(d => setRawPlans(d.plans || []))
             .catch(() => {});
     }, []);
 
@@ -44,95 +56,143 @@ const Pricing = () => {
         }
     }, [servers]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    const plans = [
-        {
-            name: 'Basic',
-            price: isNG ? '4,999' : '4.99',
-            amount_ngn: isNG ? 4999 : 7984,
-            currency: isNG ? '₦' : '$',
-            devices: 1,
-            period: '1 device · 30 days',
-            features: ['1 device', 'AES-256 encryption', '2 server regions', 'Zero traffic logs', 'Email support'],
-            featured: false
-        },
-        {
-            name: 'Pro',
-            price: isNG ? '7,999' : '7.99',
-            amount_ngn: isNG ? 7999 : 12784,
-            currency: isNG ? '₦' : '$',
-            devices: 5,
-            period: '5 devices · 30 days',
-            features: ['5 devices', 'AES-256 encryption', 'All 4 server regions', 'Zero traffic logs', 'Priority support', 'Custom VPN profiles'],
-            featured: true
-        },
-        {
-            name: 'Business',
-            price: isNG ? '19,999' : '19.99',
-            amount_ngn: isNG ? 19999 : 31984,
-            currency: isNG ? '₦' : '$',
-            devices: 10,
-            period: 'Up to 10 devices · 30 days',
-            features: ['Up to 10 devices', 'AES-256 encryption', 'All 4 server regions', 'Zero traffic logs', 'Dedicated support', 'Multi-server sync'],
-            featured: false
-        }
+    // Build plans from API data; fall back to static defaults until loaded
+    const FALLBACK_PLANS = [
+        { code: 'basic',    name: 'Basic',    price_ngn: 4999,  price_usd: 4.99,  amount_ngn: 4999,  amount_ngn_intl: 7984,  devices: 1,  period: '1 device · 30 days',        features: ['1 device', 'AES-256 encryption', '2 server regions', 'Zero traffic logs', 'Email support'], featured: false },
+        { code: 'pro',      name: 'Pro',      price_ngn: 7999,  price_usd: 7.99,  amount_ngn: 7999,  amount_ngn_intl: 12784, devices: 5,  period: '5 devices · 30 days',        features: ['5 devices', 'AES-256 encryption', 'All 4 server regions', 'Zero traffic logs', 'Priority support', 'Custom VPN profiles'], featured: true  },
+        { code: 'business', name: 'Business', price_ngn: 19999, price_usd: 19.99, amount_ngn: 19999, amount_ngn_intl: 31984, devices: 10, period: 'Up to 10 devices · 30 days', features: ['Up to 10 devices', 'AES-256 encryption', 'All 4 server regions', 'Zero traffic logs', 'Dedicated support', 'Multi-server sync'], featured: false },
     ];
+    const source = rawPlans.length > 0 ? rawPlans : FALLBACK_PLANS;
+    const plans = source.map(p => ({
+        ...p,
+        price:      isNG ? p.price_ngn.toLocaleString() : p.price_usd.toFixed(2),
+        amount_ngn: isNG ? p.amount_ngn : p.amount_ngn_intl,
+        currency:   isNG ? '₦' : '$',
+    }));
 
-    const handleCardPayment = async (plan) => {
-        const email = prompt('Enter your email for your VPN account credentials:');
-        if (!email || !email.includes('@')) return alert('Please enter a valid email.');
+    const openEmailPrompt = (plan, type) => {
+        // If already logged in, skip the email modal and go straight to payment
+        if (user?.email) {
+            initiatePayment(user.email, plan, type);
+            return;
+        }
+        setEmailValue('');
+        setEmailError('');
+        setEmailPrompt({ plan, type });
+    };
 
+    const initiatePayment = async (email, plan, type) => {
+        setPaying(true);
+        setEmailError('');
         try {
-            const res = await fetch('/api/pay/public/initiate', {
+            const endpoint = type === 'crypto'
+                ? '/api/pay/crypto/initiate'
+                : (user?.email ? '/api/pay/initiate' : '/api/pay/public/initiate');
+            const res = await fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    email: email,
+                    email,
                     amount_ngn: plan.amount_ngn,
-                    plan_code: plan.name.toLowerCase(),
-                    region: region
+                    plan_code: plan.code || plan.name.toLowerCase(),
+                    region
                 })
             });
             const data = await res.json();
             if (data.payment_url) {
                 window.location.href = data.payment_url;
             } else {
-                alert(data.error || 'Failed to initiate payment.');
+                setEmailError(data.error || 'Failed to initiate payment.');
+                setPaying(false);
             }
         } catch (err) {
             console.error(err);
-            alert('Connection error. Please try again.');
+            setEmailError('Connection error. Please try again.');
+            setPaying(false);
         }
     };
 
-    const handleCryptoPayment = async (plan) => {
-        const email = prompt('Enter your email to receive VPN credentials after payment:');
-        if (!email || !email.includes('@')) return alert('Please enter a valid email.');
-
-        try {
-            const res = await fetch('/api/pay/crypto/initiate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    email: email,
-                    amount_ngn: plan.amount_ngn,
-                    plan_code: plan.name.toLowerCase(),
-                    region: region
-                })
-            });
-            const data = await res.json();
-            if (data.payment_url) {
-                window.location.href = data.payment_url;
-            } else {
-                alert(data.error || 'Failed to create crypto invoice.');
-            }
-        } catch (err) {
-            console.error(err);
-            alert('Connection error. Please try again.');
+    const submitEmailPrompt = async () => {
+        const email = emailValue.trim();
+        if (!email || !email.includes('@')) {
+            setEmailError('Please enter a valid email address.');
+            return;
         }
+        const { plan, type } = emailPrompt;
+        await initiatePayment(email, plan, type);
     };
+
+    const handleCardPayment = (plan) => openEmailPrompt(plan, 'card');
+
+    const handleCryptoPayment = (plan) => openEmailPrompt(plan, 'crypto');
 
     return (
         <section className="section pricing-page">
+            {/* ── Email modal ── */}
+            {emailPrompt && (
+                <div style={{
+                    position: 'fixed', inset: 0, background: 'rgba(2,2,5,0.85)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    zIndex: 1000, padding: '16px'
+                }}>
+                    <div style={{
+                        background: 'var(--bg2)', border: '1px solid var(--border)',
+                        borderRadius: '16px', padding: '36px', width: '100%', maxWidth: '420px'
+                    }}>
+                        <p style={{ margin: '0 0 6px', fontSize: '11px', fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '.1em' }}>
+                            {emailPrompt.type === 'card' ? 'Card payment' : 'Crypto payment'}
+                        </p>
+                        <h3 style={{ margin: '0 0 6px', fontSize: '20px', fontWeight: 800, color: 'var(--text)' }}>
+                            {emailPrompt.plan.name} plan
+                        </h3>
+                        <p style={{ margin: '0 0 24px', fontSize: '14px', color: 'var(--text2)' }}>
+                            Enter your email — your VPN credentials will be sent here after payment.
+                        </p>
+                        <input
+                            type="email"
+                            autoFocus
+                            placeholder="you@example.com"
+                            value={emailValue}
+                            onChange={e => { setEmailValue(e.target.value); setEmailError(''); }}
+                            onKeyDown={e => e.key === 'Enter' && submitEmailPrompt()}
+                            style={{
+                                width: '100%', boxSizing: 'border-box',
+                                background: 'var(--bg3)', border: `1px solid ${emailError ? '#ef4444' : 'var(--border)'}`,
+                                borderRadius: '8px', padding: '12px 14px',
+                                fontSize: '15px', color: 'var(--text)', outline: 'none',
+                                fontFamily: 'var(--mono)', marginBottom: '8px'
+                            }}
+                        />
+                        {emailError && (
+                            <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#ef4444' }}>{emailError}</p>
+                        )}
+                        <div style={{ display: 'flex', gap: '10px', marginTop: emailError ? 0 : '16px' }}>
+                            <button
+                                onClick={submitEmailPrompt}
+                                disabled={paying}
+                                style={{
+                                    flex: 1, background: 'var(--accent)', border: 'none',
+                                    borderRadius: '8px', padding: '13px', fontSize: '15px',
+                                    fontWeight: 700, color: '#050810', cursor: paying ? 'not-allowed' : 'pointer',
+                                    opacity: paying ? 0.6 : 1
+                                }}
+                            >
+                                {paying ? 'Redirecting…' : 'Continue'}
+                            </button>
+                            <button
+                                onClick={() => { setEmailPrompt(null); setPaying(false); }}
+                                style={{
+                                    background: 'transparent', border: '1px solid var(--border)',
+                                    borderRadius: '8px', padding: '13px 20px', fontSize: '14px',
+                                    color: 'var(--text2)', cursor: 'pointer'
+                                }}
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
             <div className="container" style={{ textAlign: 'center' }}>
                 <div className="section-tag" style={{ display: 'inline-block' }}>// pricing</div>
                 <h2 className="section-title">Simple, transparent plans.</h2>

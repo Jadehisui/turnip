@@ -1,36 +1,84 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import {
     User, Mail, Calendar, Hash, Key, ExternalLink,
-    Download, RefreshCw, ShieldCheck, AlertCircle, Copy, Check
+    Download, RefreshCw, ShieldCheck, AlertCircle, Copy, Check, Loader2
 } from 'lucide-react';
 
 const Dashboard = () => {
     const [sub, setSub] = useState(null);
     const [copied, setCopied] = useState(null);
+    const [regenPass, setRegenPass] = useState(null);
+    const [regenLoading, setRegenLoading] = useState(false);
+    const [regenError, setRegenError] = useState('');
+    const [terminateConfirm, setTerminateConfirm] = useState(false);
+    const [terminateLoading, setTerminateLoading] = useState(false);
+    const redirecting = useRef(false);
+
+    const redirectToLogin = () => {
+        if (redirecting.current) return;
+        redirecting.current = true;
+        window.location.href = '/login';
+    };
 
     useEffect(() => {
         const fetchStatus = async () => {
             try {
                 const res = await fetch('/api/user/status');
+                if (res.status === 401) {
+                    redirectToLogin();
+                    return;
+                }
                 const data = await res.json();
                 if (data.email) {
                     setSub(data);
                 } else {
-                    window.location.href = '/login';
+                    redirectToLogin();
                 }
             } catch (err) {
                 console.error('Failed to fetch user status:', err);
-                window.location.href = '/login';
+                redirectToLogin();
             }
         };
         fetchStatus();
-    }, []);
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const copyToClipboard = (text, id) => {
         navigator.clipboard.writeText(text);
         setCopied(id);
         setTimeout(() => setCopied(null), 2000);
+    };
+
+    const handleRegen = async () => {
+        setRegenLoading(true);
+        setRegenError('');
+        setRegenPass(null);
+        try {
+            const res = await fetch('/api/regenerate', { method: 'POST' });
+            const data = await res.json();
+            if (res.ok && data.ok) {
+                setRegenPass(data.password);
+                setSub(prev => ({ ...prev, password: data.password }));
+            } else {
+                setRegenError(data.error || 'Failed to regenerate password.');
+            }
+        } catch {
+            setRegenError('Could not reach the server.');
+        } finally {
+            setRegenLoading(false);
+        }
+    };
+
+    const handleTerminate = async () => {
+        setTerminateLoading(true);
+        try {
+            const res = await fetch('/api/terminate', { method: 'POST' });
+            if (res.ok) {
+                window.location.href = '/login';
+            }
+        } catch { /* ignore */ } finally {
+            setTerminateLoading(false);
+        }
     };
 
     if (!sub) return <div className="loading">Loading...</div>;
@@ -113,26 +161,69 @@ const Dashboard = () => {
                 </div>
 
                 <div className="dash-right">
-                    {/* Quick Actions */}
+                    {/* Downloads */}
                     <section className="dash-card">
                         <h3>Downloads</h3>
                         <p className="small-text">Install CA certificate once to trust all Turnip VPN profiles.</p>
                         <div className="action-buttons">
-                            <button className="btn btn-action">
+                            <a
+                                href="/download/ca"
+                                className="btn btn-action"
+                                style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none' }}
+                            >
                                 <ShieldCheck size={16} /> Download CA Certificate
-                            </button>
+                            </a>
                         </div>
                     </section>
 
                     <section className="dash-card" style={{ marginTop: '20px' }}>
                         <h3>Account Settings</h3>
                         <div className="action-buttons">
-                            <button className="btn btn-action-outline">
-                                <RefreshCw size={16} /> Regenerate Password
+                            <button className="btn btn-action-outline" onClick={handleRegen} disabled={regenLoading}>
+                                {regenLoading
+                                    ? <><Loader2 className="spin" size={15} style={{ animation: 'spin 0.8s linear infinite' }} /> Regenerating…</>
+                                    : <><RefreshCw size={16} /> Regenerate Password</>}
                             </button>
-                            <button className="btn btn-action-danger">
-                                Terminate Subscription
-                            </button>
+                            {regenPass && (
+                                <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 14px' }}>
+                                    <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 4 }}>New password (update your VPN client):</div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <code className="mono" style={{ color: 'var(--accent)', flex: 1, fontSize: 13 }}>{regenPass}</code>
+                                        <button className="copy-btn" onClick={() => copyToClipboard(regenPass, 'regen_pass')}>
+                                            {copied === 'regen_pass' ? <Check size={14} /> : <Copy size={14} />}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                            {regenError && <div style={{ fontSize: 12, color: 'var(--red)' }}>{regenError}</div>}
+                            {!terminateConfirm ? (
+                                <button className="btn btn-action-danger" onClick={() => setTerminateConfirm(true)}>
+                                    Terminate Subscription
+                                </button>
+                            ) : (
+                                <div style={{ background: 'rgba(255,71,87,0.06)', border: '1px solid rgba(255,71,87,0.25)', borderRadius: 10, padding: '14px' }}>
+                                    <div style={{ fontSize: 13, color: 'var(--red)', fontWeight: 600, marginBottom: 10 }}>
+                                        This will disable your account immediately. Continue?
+                                    </div>
+                                    <div style={{ display: 'flex', gap: 8 }}>
+                                        <button
+                                            className="btn btn-action-danger"
+                                            style={{ flex: 1, justifyContent: 'center' }}
+                                            onClick={handleTerminate}
+                                            disabled={terminateLoading}
+                                        >
+                                            {terminateLoading ? 'Processing…' : 'Yes, terminate'}
+                                        </button>
+                                        <button
+                                            className="btn btn-action"
+                                            style={{ flex: 1, justifyContent: 'center' }}
+                                            onClick={() => setTerminateConfirm(false)}
+                                        >
+                                            Cancel
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </section>
                 </div>

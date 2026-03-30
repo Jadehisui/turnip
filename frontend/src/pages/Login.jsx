@@ -1,14 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mail, Shield, ArrowRight, Loader2, User, CheckCircle, Lock, Zap, Globe } from 'lucide-react';
+import { Mail, Shield, ArrowRight, Loader2, User, CheckCircle, Lock, Zap, Globe, KeyRound } from 'lucide-react';
 
 const Login = () => {
     const [tab, setTab] = useState('signin');
 
     // sign-in state
+    const [loginStep, setLoginStep] = useState('email'); // 'email' | 'otp'
     const [email, setEmail] = useState('');
+    const [pendingEmail, setPendingEmail] = useState('');
+    const [otpCode, setOtpCode] = useState('');
+    const [otpError, setOtpError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [loginError, setLoginError] = useState('');
+    const otpInputRef = useRef(null);
 
     // sign-up state
     const [regName, setRegName] = useState('');
@@ -29,13 +34,45 @@ const Login = () => {
             });
             let data = {};
             try { data = await res.json(); } catch (_) {}
-            if (res.ok && data.ok) {
-                window.location.href = '/dashboard';
+            if (res.ok && data.step === 'otp') {
+                setPendingEmail(data.email || email);
+                setOtpCode('');
+                setOtpError('');
+                setLoginStep('otp');
+                setTimeout(() => otpInputRef.current?.focus(), 80);
             } else {
-                setLoginError(data.error || 'No active subscription found for this email.');
+                setLoginError(data.error || 'Could not send login code. Please try again.');
             }
         } catch {
             setLoginError('Could not reach the server. Please try again.');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleVerifyOtp = async (e) => {
+        e.preventDefault();
+        setOtpError('');
+        if (otpCode.length !== 6) {
+            setOtpError('Enter the 6-digit code from your email.');
+            return;
+        }
+        setIsLoading(true);
+        try {
+            const res = await fetch('/api/auth/verify-otp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: pendingEmail, code: otpCode }),
+            });
+            let data = {};
+            try { data = await res.json(); } catch (_) {}
+            if (res.ok && data.ok) {
+                window.location.href = data.redirect || '/dashboard';
+            } else {
+                setOtpError(data.error || 'Invalid code. Please try again.');
+            }
+        } catch {
+            setOtpError('Could not reach the server. Please try again.');
         } finally {
             setIsLoading(false);
         }
@@ -53,6 +90,16 @@ const Login = () => {
             });
             let data = {};
             try { data = await res.json(); } catch (_) {}
+
+            // Existing account — switch to Sign In tab and pre-fill the email
+            if (res.status === 409 && data.switch_to_signin) {
+                setEmail(data.email || regEmail);
+                setLoginStep('email');
+                setLoginError('We found your account — enter your email below to get a sign-in code.');
+                setTab('signin');
+                return;
+            }
+
             if (res.ok && data.ok) {
                 setRegSuccess(true);
                 setTimeout(() => {
@@ -108,31 +155,90 @@ const Login = () => {
                     <AnimatePresence mode="wait">
                         {tab === 'signin' ? (
                             <motion.div key="signin" initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 12 }} transition={{ duration: 0.2 }}>
-                                <p className="form-hint">Enter the email address linked to your plan.</p>
-                                <form onSubmit={handleSignIn}>
-                                    <label className="field-label">Email address</label>
-                                    <div className="input-wrap">
-                                        <Mail className="inp-icon" size={16} />
-                                        <input
-                                            type="email"
-                                            placeholder="you@example.com"
-                                            value={email}
-                                            onChange={e => setEmail(e.target.value)}
-                                            required
-                                            autoComplete="email"
-                                        />
-                                    </div>
-                                    {loginError && <div className="msg-error">{loginError}</div>}
-                                    <button className="btn-submit" disabled={isLoading}>
-                                        {isLoading
-                                            ? <><Loader2 className="spin" size={16} /> Checking…</>
-                                            : <>Sign In <ArrowRight size={16} /></>}
-                                    </button>
-                                </form>
-                                <div className="form-footer">
-                                    Don't have an account?{' '}
-                                    <button className="link-btn" onClick={() => setTab('create')}>Create one →</button>
-                                </div>
+                                <AnimatePresence mode="wait">
+                                {loginStep === 'email' ? (
+                                    <motion.div key="email-step" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18 }}>
+                                        <p className="form-hint">Enter the email address linked to your plan.</p>
+                                        <form onSubmit={handleSignIn}>
+                                            <label className="field-label">Email address</label>
+                                            <div className="input-wrap">
+                                                <Mail className="inp-icon" size={16} />
+                                                <input
+                                                    type="email"
+                                                    placeholder="you@example.com"
+                                                    value={email}
+                                                    onChange={e => setEmail(e.target.value)}
+                                                    required
+                                                    autoComplete="email"
+                                                />
+                                            </div>
+                                            {loginError && <div className="msg-error">{loginError}</div>}
+                                            <button className="btn-submit" disabled={isLoading}>
+                                                {isLoading
+                                                    ? <><Loader2 className="spin" size={16} /> Sending code…</>
+                                                    : <>Continue <ArrowRight size={16} /></>}
+                                            </button>
+                                        </form>
+                                        <div className="form-footer">
+                                            Don&apos;t have an account?{' '}
+                                            <button className="link-btn" onClick={() => setTab('create')}>Create one →</button>
+                                        </div>
+                                    </motion.div>
+                                ) : (
+                                    <motion.div key="otp-step" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18 }}>
+                                        <p className="form-hint">
+                                            We sent a 6-digit code to <strong style={{color:'var(--text)'}}>{pendingEmail}</strong>. Enter it below.
+                                        </p>
+                                        <form onSubmit={handleVerifyOtp}>
+                                            <label className="field-label">Login code</label>
+                                            <div className="input-wrap">
+                                                <KeyRound className="inp-icon" size={16} />
+                                                <input
+                                                    ref={otpInputRef}
+                                                    type="text"
+                                                    inputMode="numeric"
+                                                    placeholder="000000"
+                                                    maxLength={6}
+                                                    value={otpCode}
+                                                    onChange={e => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                                                    required
+                                                    autoComplete="one-time-code"
+                                                    style={{letterSpacing:'6px', fontSize:'22px', textAlign:'center', paddingLeft:'14px'}}
+                                                />
+                                            </div>
+                                            {otpError && <div className="msg-error">{otpError}</div>}
+                                            <button className="btn-submit" disabled={isLoading || otpCode.length !== 6}>
+                                                {isLoading
+                                                    ? <><Loader2 className="spin" size={16} /> Verifying…</>
+                                                    : <>Verify &amp; Sign In <ArrowRight size={16} /></>}
+                                            </button>
+                                        </form>
+                                        <div className="form-footer">
+                                            Wrong email?{' '}
+                                            <button className="link-btn" onClick={() => { setLoginStep('email'); setOtpCode(''); setOtpError(''); setLoginError(''); }}>Go back ←</button>
+                                        </div>
+                                        <div className="form-footer" style={{marginTop:'0.5rem'}}>
+                                            Didn&apos;t receive it?{' '}
+                                            <button className="link-btn" onClick={async () => {
+                                                setOtpError('');
+                                                setIsLoading(true);
+                                                try {
+                                                    const res = await fetch('/api/auth/login', {
+                                                        method: 'POST',
+                                                        headers: { 'Content-Type': 'application/json' },
+                                                        body: JSON.stringify({ email: pendingEmail }),
+                                                    });
+                                                    if (!res.ok) {
+                                                        const d = await res.json().catch(() => ({}));
+                                                        setOtpError(d.error || 'Could not resend.');
+                                                    }
+                                                } catch { setOtpError('Could not reach the server.'); }
+                                                finally { setIsLoading(false); }
+                                            }}>Resend code</button>
+                                        </div>
+                                    </motion.div>
+                                )}
+                                </AnimatePresence>
                             </motion.div>
                         ) : (
                             <motion.div key="register" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: 0.2 }}>

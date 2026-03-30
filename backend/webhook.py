@@ -8,16 +8,17 @@ Dev:  python3 webhook.py
 """
 
 import os, hmac, hashlib, json, logging, traceback
-from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 
+# Load .env BEFORE importing local modules so DB_PATH etc. are set at module load time
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'))
+
+from flask import Flask, request, jsonify
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../backend"))
 from provisioner import provision_user, deprovision_user, PLANS
-from database import db_init, record_payment, get_subscription, update_subscription_status
+from database import db_init, record_payment, get_subscription, update_subscription_status, register_user, get_user
 from emailer import send_welcome_email
-
-load_dotenv()
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -62,6 +63,14 @@ def _provision_and_record(email: str, plan_code: str, reference: str, region: st
     plan  = PLAN_MAP.get(plan_code.lower(), PLAN_MAP.get("pro"))
     creds = provision_user(email, plan, region)
     log.info(f"VPN account(s) created for {email} | region={creds['region']}")
+
+    # Ensure a users row exists so the customer can log in via OTP
+    if not get_user(email=email):
+        try:
+            register_user(name=email.split("@")[0], email=email)
+            log.info(f"Auto-registered users row for direct-pay customer: {email}")
+        except Exception as e:
+            log.warning(f"Could not auto-register user {email}: {e}")
 
     record_payment(
         email=email,

@@ -173,7 +173,7 @@ body { background: var(--bg); color: var(--text); font-family: var(--sans); min-
 <!-- LOGIN -->
 <div id="loginScreen">
   <div class="login-card">
-    <div class="login-logo">Secure<span>Fast</span></div>
+    <div class="login-logo">Turnip<span>VPN</span></div>
     <div class="login-sub">Admin Panel — Enter your API token</div>
     <label class="form-label">API Token</label>
     <input type="password" class="form-input" id="tokenInput" placeholder="Your ADMIN_TOKEN" />
@@ -190,7 +190,7 @@ body { background: var(--bg); color: var(--text); font-family: var(--sans); min-
 <!-- APP -->
 <div class="app" id="app">
   <nav class="nav">
-    <div class="logo">Secure<span>Fast</span> <span style="color:var(--text3);font-size:12px;font-weight:400;margin-left:4px">Admin</span></div>
+    <div class="logo">Turnip<span>VPN</span> <span style="color:var(--text3);font-size:12px;font-weight:400;margin-left:4px">Admin</span></div>
     <div class="nav-right">
       <div class="vpn-status">
         <div class="status-dot dot-gray" id="vpnDot"></div>
@@ -295,6 +295,30 @@ body { background: var(--bg); color: var(--text); font-family: var(--sans); min-
       </div>
     </div>
 
+    <!-- SUBSCRIBERS TABLE -->
+    <div class="full-card" style="margin-bottom:16px">
+      <div class="card-head">
+        <div class="card-title">Subscribers</div>
+        <div class="card-count" id="subCount">–</div>
+      </div>
+      <div style="overflow-x:auto">
+        <table id="subTable" style="width:100%;border-collapse:collapse;font-size:12px;font-family:var(--mono)">
+          <thead>
+            <tr style="color:var(--text3);text-transform:uppercase;font-size:10px;letter-spacing:.07em;border-bottom:1px solid var(--border)">
+              <th style="text-align:left;padding:6px 10px 8px">Email</th>
+              <th style="text-align:left;padding:6px 10px 8px">Plan</th>
+              <th style="text-align:left;padding:6px 10px 8px">Status</th>
+              <th style="text-align:left;padding:6px 10px 8px">Expires</th>
+              <th style="text-align:left;padding:6px 10px 8px">Created</th>
+            </tr>
+          </thead>
+          <tbody id="subBody">
+            <tr><td colspan="5" style="color:var(--text3);padding:1rem">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- ACTIVITY LOG -->
     <div class="full-card">
       <div class="card-head">
@@ -316,6 +340,14 @@ let allUsers = [];
 let pollTimer = null;
 const MAX = 80;
 
+// Restore saved session
+(function() {
+  const saved = localStorage.getItem("turnip_admin_token");
+  const savedApi = localStorage.getItem("turnip_admin_api");
+  if (saved) document.getElementById("tokenInput").value = saved;
+  if (savedApi) document.getElementById("apiUrl").value = savedApi;
+})();
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 async function doLogin() {
   TOKEN = document.getElementById("tokenInput").value.trim();
@@ -323,6 +355,8 @@ async function doLogin() {
   try {
     const r = await apiFetch("/api/status");
     if (r.ok) {
+      localStorage.setItem("turnip_admin_token", TOKEN);
+      localStorage.setItem("turnip_admin_api", API);
       document.getElementById("loginScreen").style.display = "none";
       document.getElementById("app").classList.add("visible");
       startPolling();
@@ -332,7 +366,7 @@ async function doLogin() {
   } catch(e) { showLoginErr(); }
 }
 function showLoginErr() { document.getElementById("loginErr").style.display = "block"; }
-function logout() { clearInterval(pollTimer); location.reload(); }
+function logout() { clearInterval(pollTimer); localStorage.removeItem("turnip_admin_token"); location.reload(); }
 document.getElementById("tokenInput").addEventListener("keydown", e => { if(e.key==="Enter") doLogin(); });
 
 // ── API ───────────────────────────────────────────────────────────────────────
@@ -351,13 +385,16 @@ function startPolling() {
 
 async function refresh() {
   try {
-    const [statusR, usersR] = await Promise.all([
+    const [statusR, usersR, subsR] = await Promise.all([
       apiFetch("/api/status"),
-      apiFetch("/api/users")
+      apiFetch("/api/users"),
+      apiFetch("/api/subscribers"),
     ]);
     const status = await statusR.json();
     const users  = await usersR.json();
+    const subs   = await subsR.json();
     renderAll(status, users);
+    renderSubscribers(subs);
   } catch(e) {
     log("API poll failed: " + e.message, "err");
   }
@@ -402,7 +439,7 @@ function renderAll(s, u) {
   document.getElementById("sCpuBar").style.width  = (sys.cpu_pct || 0) + "%";
   document.getElementById("sMem").textContent     = `${sys.mem_used_gb}GB / ${sys.mem_total_gb}GB`;
   document.getElementById("sMemBar").style.width  = (sys.mem_pct || 0) + "%";
-  document.getElementById("sDisk").textContent    = `${sys.disk_used_gb}GB / ${sys.disk_total_gb}GB`;
+  document.getElementById("sDisk").textContent    = `${sys.disk_used_gb ?? sys.disk_pct + '%'}GB / ${sys.disk_total_gb ?? '–'}GB`;
   document.getElementById("sDiskBar").style.width = (sys.disk_pct || 0) + "%";
 
   // Uptime
@@ -441,6 +478,22 @@ function renderUsers(list) {
           <div class="user-badge ${u.online ? "badge-on" : "badge-off"}">${u.online ? "ONLINE" : "offline"}</div>
           <button class="del-btn" onclick="deleteUser('${esc(u.username)}')">✕ Remove</button>
         </div>`).join("");
+}
+
+function renderSubscribers(data) {
+  const subs = data.subscribers || [];
+  document.getElementById("subCount").textContent = `${subs.length} total`;
+  const statusColor = s => s === 'active' ? 'var(--accent)' : s === 'non_renewing' ? 'var(--amber)' : 'var(--red)';
+  document.getElementById("subBody").innerHTML = subs.length === 0
+    ? `<tr><td colspan="5" style="color:var(--text3);padding:1rem">No subscribers yet</td></tr>`
+    : subs.map(s => `
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:8px 10px;color:var(--text)">${esc(s.email)}</td>
+        <td style="padding:8px 10px;color:var(--text2)">${esc(s.plan_name)}</td>
+        <td style="padding:8px 10px"><span style="color:${statusColor(s.status)};font-weight:700">${esc(s.status)}</span></td>
+        <td style="padding:8px 10px;color:var(--text2)">${esc((s.expires_at||'').split('T')[0])}</td>
+        <td style="padding:8px 10px;color:var(--text3)">${esc((s.created_at||'').split('T')[0])}</td>
+      </tr>`).join("");
 }
 
 function filterUsers() { renderUsers(allUsers); }
@@ -505,7 +558,7 @@ function generatePass() {
   return Array.from({length: 18}, () => chars[Math.floor(Math.random() * chars.length)]).join("");
 }
 
-function esc(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+function esc(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"); }
 
 let logLines = [];
 function log(msg, type="") {
