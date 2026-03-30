@@ -1,20 +1,29 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mail, Shield, ArrowRight, Loader2, User, CheckCircle, Lock, Zap, Globe } from 'lucide-react';
+import { Mail, Shield, ArrowRight, Loader2, User, CheckCircle, Lock, Zap, Globe, KeyRound } from 'lucide-react';
 
 const Login = () => {
     const [tab, setTab] = useState('signin');
 
-    // sign-in state
+    // sign-in — step 1: email
     const [email, setEmail] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [loginError, setLoginError] = useState('');
+
+    // sign-in — step 2: OTP
+    const [signInStep, setSignInStep] = useState('email'); // 'email' | 'otp'
+    const [otpEmail, setOtpEmail] = useState('');
+    const [otpCode, setOtpCode] = useState('');
+    const [otpLoading, setOtpLoading] = useState(false);
+    const [otpError, setOtpError] = useState('');
+    const otpRef = useRef(null);
 
     // sign-up state
     const [regName, setRegName] = useState('');
     const [regEmail, setRegEmail] = useState('');
     const [regLoading, setRegLoading] = useState(false);
     const [regError, setRegError] = useState('');
+    const [regHint, setRegHint] = useState('');
     const [regSuccess, setRegSuccess] = useState(false);
 
     const handleSignIn = async (e) => {
@@ -29,10 +38,12 @@ const Login = () => {
             });
             let data = {};
             try { data = await res.json(); } catch (_) {}
-            if (res.ok && data.ok) {
-                window.location.href = '/dashboard';
+            if (res.ok && data.step === 'otp') {
+                setOtpEmail(email);
+                setSignInStep('otp');
+                setTimeout(() => otpRef.current?.focus(), 100);
             } else {
-                setLoginError(data.error || 'No active subscription found for this email.');
+                setLoginError(data.error || 'Could not send login code. Please try again.');
             }
         } catch {
             setLoginError('Could not reach the server. Please try again.');
@@ -41,9 +52,48 @@ const Login = () => {
         }
     };
 
+    const handleVerifyOtp = async (e) => {
+        e.preventDefault();
+        setOtpError('');
+        if (otpCode.length !== 6) { setOtpError('Enter the 6-digit code from your email.'); return; }
+        setOtpLoading(true);
+        try {
+            const res = await fetch('/api/auth/verify-otp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: otpEmail, code: otpCode }),
+            });
+            let data = {};
+            try { data = await res.json(); } catch (_) {}
+            if (res.ok && data.ok) {
+                window.location.href = data.redirect || '/dashboard';
+            } else {
+                setOtpError(data.error || 'Invalid code. Please try again.');
+            }
+        } catch {
+            setOtpError('Could not reach the server. Please try again.');
+        } finally {
+            setOtpLoading(false);
+        }
+    };
+
+    const handleResend = async () => {
+        setOtpError('');
+        setOtpLoading(true);
+        try {
+            await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: otpEmail }),
+            });
+        } catch (_) {}
+        setOtpLoading(false);
+    };
+
     const handleRegister = async (e) => {
         e.preventDefault();
         setRegError('');
+        setRegHint('');
         setRegLoading(true);
         try {
             const res = await fetch('/api/auth/register', {
@@ -53,7 +103,14 @@ const Login = () => {
             });
             let data = {};
             try { data = await res.json(); } catch (_) {}
-            if (res.ok && data.ok) {
+            if (res.status === 409 && data.switch_to_signin) {
+                // Account already exists — switch to sign-in tab with email pre-filled
+                setEmail(data.email || regEmail);
+                setRegHint('');
+                setTab('signin');
+                setLoginError('');
+                setTimeout(() => setLoginError('An account with this email already exists. Sign in instead.'), 50);
+            } else if (res.ok && data.ok) {
                 setRegSuccess(true);
                 setTimeout(() => {
                     window.location.href = data.redirect || '/pricing';
@@ -101,39 +158,79 @@ const Login = () => {
                 >
                     {/* Tabs */}
                     <div className="tab-row">
-                        <button className={`tab-btn ${tab === 'signin' ? 'active' : ''}`} onClick={() => { setTab('signin'); setLoginError(''); }}>Sign In</button>
-                        <button className={`tab-btn ${tab === 'create' ? 'active' : ''}`} onClick={() => { setTab('create'); setRegError(''); setRegSuccess(false); }}>Create Account</button>
+                        <button className={`tab-btn ${tab === 'signin' ? 'active' : ''}`} onClick={() => { setTab('signin'); setLoginError(''); setSignInStep('email'); setOtpCode(''); setOtpError(''); }}>Sign In</button>
+                        <button className={`tab-btn ${tab === 'create' ? 'active' : ''}`} onClick={() => { setTab('create'); setRegError(''); setRegHint(''); setRegSuccess(false); }}>Create Account</button>
                     </div>
 
                     <AnimatePresence mode="wait">
                         {tab === 'signin' ? (
-                            <motion.div key="signin" initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 12 }} transition={{ duration: 0.2 }}>
-                                <p className="form-hint">Enter the email address linked to your plan.</p>
-                                <form onSubmit={handleSignIn}>
-                                    <label className="field-label">Email address</label>
-                                    <div className="input-wrap">
-                                        <Mail className="inp-icon" size={16} />
-                                        <input
-                                            type="email"
-                                            placeholder="you@example.com"
-                                            value={email}
-                                            onChange={e => setEmail(e.target.value)}
-                                            required
-                                            autoComplete="email"
-                                        />
-                                    </div>
-                                    {loginError && <div className="msg-error">{loginError}</div>}
-                                    <button className="btn-submit" disabled={isLoading}>
-                                        {isLoading
-                                            ? <><Loader2 className="spin" size={16} /> Checking…</>
-                                            : <>Sign In <ArrowRight size={16} /></>}
-                                    </button>
-                                </form>
-                                <div className="form-footer">
-                                    Don't have an account?{' '}
-                                    <button className="link-btn" onClick={() => setTab('create')}>Create one →</button>
-                                </div>
-                            </motion.div>
+                            <AnimatePresence mode="wait">
+                                {signInStep === 'email' ? (
+                                    <motion.div key="email-step" initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 12 }} transition={{ duration: 0.2 }}>
+                                        <p className="form-hint">Enter the email address linked to your plan.</p>
+                                        <form onSubmit={handleSignIn}>
+                                            <label className="field-label">Email address</label>
+                                            <div className="input-wrap">
+                                                <Mail className="inp-icon" size={16} />
+                                                <input
+                                                    type="email"
+                                                    placeholder="you@example.com"
+                                                    value={email}
+                                                    onChange={e => setEmail(e.target.value)}
+                                                    required
+                                                    autoComplete="email"
+                                                />
+                                            </div>
+                                            {loginError && <div className="msg-error">{loginError}</div>}
+                                            <button className="btn-submit" disabled={isLoading}>
+                                                {isLoading
+                                                    ? <><Loader2 className="spin" size={16} /> Sending code…</>
+                                                    : <>Send Login Code <ArrowRight size={16} /></>}
+                                            </button>
+                                        </form>
+                                        <div className="form-footer">
+                                            Don't have an account?{' '}
+                                            <button className="link-btn" onClick={() => setTab('create')}>Create one →</button>
+                                        </div>
+                                    </motion.div>
+                                ) : (
+                                    <motion.div key="otp-step" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18 }}>
+                                        <p className="form-hint">We sent a 6-digit code to <strong style={{ color: 'var(--text)' }}>{otpEmail}</strong>. Enter it below.</p>
+                                        <form onSubmit={handleVerifyOtp}>
+                                            <label className="field-label">Login code</label>
+                                            <div className="input-wrap">
+                                                <KeyRound className="inp-icon" size={16} />
+                                                <input
+                                                    ref={otpRef}
+                                                    type="text"
+                                                    inputMode="numeric"
+                                                    placeholder="000000"
+                                                    maxLength={6}
+                                                    value={otpCode}
+                                                    onChange={e => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                                                    required
+                                                    autoComplete="one-time-code"
+                                                    style={{ letterSpacing: '6px', fontSize: '22px', textAlign: 'center', paddingLeft: '14px' }}
+                                                />
+                                            </div>
+                                            {otpError && <div className="msg-error">{otpError}</div>}
+                                            <button className="btn-submit" disabled={otpLoading || otpCode.length !== 6}>
+                                                {otpLoading
+                                                    ? <><Loader2 className="spin" size={16} /> Verifying…</>
+                                                    : <>Verify &amp; Sign In <ArrowRight size={16} /></>}
+                                            </button>
+                                        </form>
+                                        <div className="form-footer">
+                                            Wrong email?{' '}
+                                            <button className="link-btn" onClick={() => { setSignInStep('email'); setOtpCode(''); setOtpError(''); setEmail(''); }}>Go back ←</button>
+                                        </div>
+                                        <div className="form-footer" style={{ marginTop: '0.5rem' }}>
+                                            Didn't receive it?{' '}
+                                            <button className="link-btn" onClick={handleResend} disabled={otpLoading}>Resend code</button>
+                                        </div>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
                         ) : (
                             <motion.div key="register" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: 0.2 }}>
                                 {regSuccess ? (
@@ -199,31 +296,31 @@ const Login = () => {
         /* Left brand panel */
         .lp-brand {
           flex: 0 0 420px;
-          background: linear-gradient(160deg, #031a10 0%, #042e1c 60%, #051f12 100%);
-          border-right: 1px solid rgba(5,150,105,0.2);
+          background: linear-gradient(160deg, var(--bg2) 0%, var(--surf) 60%, var(--bg2) 100%);
+          border-right: 1px solid var(--border);
           display: flex; align-items: center; justify-content: center;
           padding: 3rem;
         }
         .brand-inner { max-width: 300px; }
         .brand-logo {
-          font-size: 32px; font-weight: 900; color: #f9fafb;
+          font-size: 32px; font-weight: 900; color: var(--text);
           letter-spacing: -1px; margin-bottom: 0.5rem;
         }
-        .brand-logo span { color: #34d399; }
+        .brand-logo span { color: var(--accent); }
         .brand-tagline {
-          color: #6b7280; font-size: 15px; margin-bottom: 2.5rem;
+          color: var(--text3); font-size: 15px; margin-bottom: 2.5rem;
           font-style: italic;
         }
         .feature-list { display: flex; flex-direction: column; gap: 14px; }
         .feature-item {
           display: flex; align-items: center; gap: 12px;
-          color: #d1d5db; font-size: 14px;
+          color: var(--text2); font-size: 14px;
         }
         .feat-icon {
           width: 30px; height: 30px; border-radius: 8px;
-          background: rgba(52,211,153,0.1); border: 1px solid rgba(52,211,153,0.2);
+          background: var(--adim); border: 1px solid var(--border);
           display: flex; align-items: center; justify-content: center;
-          color: #34d399; flex-shrink: 0;
+          color: var(--accent); flex-shrink: 0;
         }
 
         /* Right form panel */
@@ -253,7 +350,7 @@ const Login = () => {
           font-size: 14px; font-weight: 600; cursor: pointer;
           transition: all 0.2s; font-family: var(--sans);
         }
-        .tab-btn.active { background: #059669; color: #fff; }
+        .tab-btn.active { background: var(--accent); color: #fff; }
         .tab-btn:not(.active):hover { background: var(--border); color: var(--text); }
 
         /* Form elements */
@@ -275,12 +372,12 @@ const Login = () => {
           font-family: var(--sans); font-size: 15px;
           transition: border 0.2s, background 0.2s; box-sizing: border-box;
         }
-        input:focus { outline: none; border-color: #059669; background: var(--surf, #0d1524); }
+        input:focus { outline: none; border-color: var(--accent); background: var(--surf); }
         input::placeholder { color: var(--text3); }
 
         /* Button */
         .btn-submit {
-          width: 100%; background: #059669; color: #fff;
+          width: 100%; background: var(--accent); color: #fff;
           border: none; border-radius: 10px;
           padding: 14px; font-family: var(--sans);
           font-size: 15px; font-weight: 700;
@@ -289,7 +386,7 @@ const Login = () => {
           transition: background 0.2s, transform 0.1s;
           margin-top: 0.5rem;
         }
-        .btn-submit:hover:not(:disabled) { background: #047857; transform: translateY(-1px); }
+        .btn-submit:hover:not(:disabled) { background: var(--accent2); transform: translateY(-1px); }
         .btn-submit:disabled { opacity: 0.6; cursor: not-allowed; }
 
         /* Messages */
@@ -307,19 +404,20 @@ const Login = () => {
           font-size: 13px; color: var(--text3);
         }
         .link-btn {
-          background: none; border: none; color: #34d399;
+          background: none; border: none; color: var(--accent);
           font-weight: 700; cursor: pointer; font-size: 13px;
           font-family: var(--sans); padding: 0; margin-left: 3px;
           text-decoration: underline; text-decoration-color: transparent;
           transition: text-decoration-color 0.2s;
         }
-        .link-btn:hover { text-decoration-color: #34d399; }
+        .link-btn:hover { text-decoration-color: var(--accent); }
+        .link-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
         /* Success state */
         .success-state {
           text-align: center; padding: 2rem 0;
         }
-        .success-icon { color: #34d399; margin: 0 auto 1rem; display: block; }
+        .success-icon { color: var(--accent); margin: 0 auto 1rem; display: block; }
         .success-state h3 { color: var(--text); font-size: 20px; margin: 0 0 0.5rem; }
         .success-state p { color: var(--text2); font-size: 14px; margin: 0; }
 
@@ -330,7 +428,7 @@ const Login = () => {
         /* Mobile */
         @media (max-width: 768px) {
           .lp-wrap { flex-direction: column; }
-          .lp-brand { flex: none; padding: 2rem; border-right: none; border-bottom: 1px solid rgba(5,150,105,0.2); }
+          .lp-brand { flex: none; padding: 2rem; border-right: none; border-bottom: 1px solid var(--border); }
           .brand-logo { font-size: 26px; }
           .brand-tagline { margin-bottom: 1.25rem; }
           .feature-list { flex-direction: row; flex-wrap: wrap; gap: 10px; }

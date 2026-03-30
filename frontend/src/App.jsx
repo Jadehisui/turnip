@@ -1,5 +1,6 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { AuthProvider } from './contexts/AuthContext';
 import Navbar from './components/Navbar';
 import Home from './pages/Home';
 import Login from './pages/Login';
@@ -11,6 +12,7 @@ import { Security, Terms, Privacy } from './pages/Legal';
 function App() {
   return (
     <Router>
+      <AuthProvider>
       <div className="app-container">
         <Navbar />
         <main>
@@ -28,6 +30,7 @@ function App() {
 
         {/* Footer could go here or as a component */}
       </div>
+      </AuthProvider>
 
       <style jsx>{`
         .app-container {
