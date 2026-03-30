@@ -1,35 +1,41 @@
 import React, { useState } from 'react';
-import { motion } from 'framer-motion';
-import { Mail, Shield, ArrowRight, Loader2, User } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Mail, Shield, ArrowRight, Loader2, User, CheckCircle, Lock, Zap, Globe } from 'lucide-react';
 
 const Login = () => {
-    const [email, setEmail] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
     const [tab, setTab] = useState('signin');
 
-    // signup form state
+    // sign-in state
+    const [email, setEmail] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
+    const [loginError, setLoginError] = useState('');
+
+    // sign-up state
     const [regName, setRegName] = useState('');
     const [regEmail, setRegEmail] = useState('');
     const [regLoading, setRegLoading] = useState(false);
-    const [regMsg, setRegMsg] = useState('');
+    const [regError, setRegError] = useState('');
+    const [regSuccess, setRegSuccess] = useState(false);
 
-    const handleEmailLogin = async (e) => {
+    const handleSignIn = async (e) => {
         e.preventDefault();
+        setLoginError('');
         setIsLoading(true);
         try {
             const res = await fetch('/api/auth/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email })
+                body: JSON.stringify({ email }),
             });
-            const data = await res.json();
-            if (data.ok) {
+            let data = {};
+            try { data = await res.json(); } catch (_) {}
+            if (res.ok && data.ok) {
                 window.location.href = '/dashboard';
             } else {
-                alert(data.error || 'No account found. Please purchase a plan first.');
+                setLoginError(data.error || 'No active subscription found for this email.');
             }
-        } catch (err) {
-            alert('Server error. Please try again later.');
+        } catch {
+            setLoginError('Could not reach the server. Please try again.');
         } finally {
             setIsLoading(false);
         }
@@ -37,130 +43,300 @@ const Login = () => {
 
     const handleRegister = async (e) => {
         e.preventDefault();
+        setRegError('');
         setRegLoading(true);
-        setRegMsg('');
         try {
             const res = await fetch('/api/auth/register', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: regName, email: regEmail })
+                body: JSON.stringify({ name: regName, email: regEmail }),
             });
-            const data = await res.json();
-            if (data.ok) {
-                if (data.redirect === '/dashboard') {
-                    window.location.href = '/dashboard';
-                } else {
-                    // registered — send to pricing to buy a plan
-                    window.location.href = '/pricing';
-                }
+            let data = {};
+            try { data = await res.json(); } catch (_) {}
+            if (res.ok && data.ok) {
+                setRegSuccess(true);
+                setTimeout(() => {
+                    window.location.href = data.redirect || '/pricing';
+                }, 1800);
             } else {
-                setRegMsg(data.error || 'Registration failed.');
+                setRegError(data.error || 'Registration failed. Please try again.');
             }
-        } catch (err) {
-            setRegMsg('Server error. Please try again.');
+        } catch {
+            setRegError('Could not reach the server. Please try again.');
         } finally {
             setRegLoading(false);
         }
     };
 
     return (
-        <div className="login-page">
-            <div className="container">
+        <div className="lp-wrap">
+            {/* Left panel — branding */}
+            <div className="lp-brand">
+                <div className="brand-inner">
+                    <div className="brand-logo">Turnip<span>VPN</span></div>
+                    <p className="brand-tagline">Fast. Private. Unbreakable.</p>
+                    <div className="feature-list">
+                        {[
+                            { icon: <Lock size={15} />, text: 'AES-256 encryption' },
+                            { icon: <Globe size={15} />, text: 'Zero-log policy' },
+                            { icon: <Zap size={15} />, text: 'Instant activation after payment' },
+                            { icon: <Shield size={15} />, text: 'IKEv2/IPSec protocol' },
+                        ].map((f, i) => (
+                            <div key={i} className="feature-item">
+                                <span className="feat-icon">{f.icon}</span>
+                                <span>{f.text}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+
+            {/* Right panel — form */}
+            <div className="lp-form-side">
                 <motion.div
-                    className="login-card"
-                    initial={{ opacity: 0, y: 20 }}
+                    className="lp-card"
+                    initial={{ opacity: 0, y: 24 }}
                     animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.4 }}
                 >
-                    <div className="login-header">
-                        <div className="login-icon"><Shield size={24} color="var(--accent)" /></div>
-                        <h2>Turnip VPN</h2>
-                    </div>
-
+                    {/* Tabs */}
                     <div className="tab-row">
-                        <button className={`tab-btn ${tab === 'signin' ? 'active' : ''}`} onClick={() => setTab('signin')}>Sign In</button>
-                        <button className={`tab-btn ${tab === 'create' ? 'active' : ''}`} onClick={() => setTab('create')}>Create Account</button>
+                        <button className={`tab-btn ${tab === 'signin' ? 'active' : ''}`} onClick={() => { setTab('signin'); setLoginError(''); }}>Sign In</button>
+                        <button className={`tab-btn ${tab === 'create' ? 'active' : ''}`} onClick={() => { setTab('create'); setRegError(''); setRegSuccess(false); }}>Create Account</button>
                     </div>
 
-                    {tab === 'signin' ? (
-                        <>
-                            <p className="tab-desc">Enter the email you used when purchasing your plan.</p>
-                            <form onSubmit={handleEmailLogin}>
-                                <div className="input-group">
-                                    <Mail className="input-icon" size={18} />
-                                    <input
-                                        type="email"
-                                        placeholder="you@example.com"
-                                        value={email}
-                                        onChange={(e) => setEmail(e.target.value)}
-                                        required
-                                    />
+                    <AnimatePresence mode="wait">
+                        {tab === 'signin' ? (
+                            <motion.div key="signin" initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 12 }} transition={{ duration: 0.2 }}>
+                                <p className="form-hint">Enter the email address linked to your plan.</p>
+                                <form onSubmit={handleSignIn}>
+                                    <label className="field-label">Email address</label>
+                                    <div className="input-wrap">
+                                        <Mail className="inp-icon" size={16} />
+                                        <input
+                                            type="email"
+                                            placeholder="you@example.com"
+                                            value={email}
+                                            onChange={e => setEmail(e.target.value)}
+                                            required
+                                            autoComplete="email"
+                                        />
+                                    </div>
+                                    {loginError && <div className="msg-error">{loginError}</div>}
+                                    <button className="btn-submit" disabled={isLoading}>
+                                        {isLoading
+                                            ? <><Loader2 className="spin" size={16} /> Checking…</>
+                                            : <>Sign In <ArrowRight size={16} /></>}
+                                    </button>
+                                </form>
+                                <div className="form-footer">
+                                    Don't have an account?{' '}
+                                    <button className="link-btn" onClick={() => setTab('create')}>Create one →</button>
                                 </div>
-                                <button className="btn btn-primary btn-full" disabled={isLoading}>
-                                    {isLoading ? <Loader2 className="animate-spin" size={18} /> : <>Sign In <ArrowRight size={18} /></>}
-                                </button>
-                            </form>
-                            <div className="login-footer">
-                                New here? <button className="link-btn" onClick={() => setTab('create')}>Create an account →</button>
-                            </div>
-                        </>
-                    ) : (
-                        <>
-                            <p className="tab-desc">Register with your name and email. After signup you'll choose a plan to activate your VPN.</p>
-                            <form onSubmit={handleRegister}>
-                                <div className="input-group">
-                                    <User className="input-icon" size={18} />
-                                    <input
-                                        type="text"
-                                        placeholder="Full name"
-                                        value={regName}
-                                        onChange={(e) => setRegName(e.target.value)}
-                                        required
-                                        minLength={2}
-                                    />
-                                </div>
-                                <div className="input-group">
-                                    <Mail className="input-icon" size={18} />
-                                    <input
-                                        type="email"
-                                        placeholder="your@email.com"
-                                        value={regEmail}
-                                        onChange={(e) => setRegEmail(e.target.value)}
-                                        required
-                                    />
-                                </div>
-                                {regMsg && <div className="reg-error">{regMsg}</div>}
-                                <button className="btn btn-primary btn-full" disabled={regLoading}>
-                                    {regLoading ? <Loader2 className="animate-spin" size={18} /> : <>Create Account <ArrowRight size={18} /></>}
-                                </button>
-                            </form>
-                            <div className="login-footer">
-                                Already have an account? <button className="link-btn" onClick={() => setTab('signin')}>Sign in →</button>
-                            </div>
-                        </>
-                    )}
+                            </motion.div>
+                        ) : (
+                            <motion.div key="register" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: 0.2 }}>
+                                {regSuccess ? (
+                                    <motion.div className="success-state" initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}>
+                                        <CheckCircle size={44} className="success-icon" />
+                                        <h3>Account created!</h3>
+                                        <p>Taking you to pricing to choose your plan…</p>
+                                    </motion.div>
+                                ) : (
+                                    <>
+                                        <p className="form-hint">Create a free account, then pick a plan to activate your VPN.</p>
+                                        <form onSubmit={handleRegister}>
+                                            <label className="field-label">Full name</label>
+                                            <div className="input-wrap">
+                                                <User className="inp-icon" size={16} />
+                                                <input
+                                                    type="text"
+                                                    placeholder="Jane Doe"
+                                                    value={regName}
+                                                    onChange={e => setRegName(e.target.value)}
+                                                    required
+                                                    minLength={2}
+                                                    autoComplete="name"
+                                                />
+                                            </div>
+                                            <label className="field-label">Email address</label>
+                                            <div className="input-wrap">
+                                                <Mail className="inp-icon" size={16} />
+                                                <input
+                                                    type="email"
+                                                    placeholder="you@example.com"
+                                                    value={regEmail}
+                                                    onChange={e => setRegEmail(e.target.value)}
+                                                    required
+                                                    autoComplete="email"
+                                                />
+                                            </div>
+                                            {regError && <div className="msg-error">{regError}</div>}
+                                            <button className="btn-submit" disabled={regLoading}>
+                                                {regLoading
+                                                    ? <><Loader2 className="spin" size={16} /> Creating account…</>
+                                                    : <>Create Account <ArrowRight size={16} /></>}
+                                            </button>
+                                        </form>
+                                        <div className="form-footer">
+                                            Already have an account?{' '}
+                                            <button className="link-btn" onClick={() => setTab('signin')}>Sign in →</button>
+                                        </div>
+                                    </>
+                                )}
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                 </motion.div>
             </div>
 
             <style jsx>{`
-        .login-page { min-height: 90vh; display: flex; align-items: center; padding: 4rem 0; }
-        .login-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 24px; padding: 3rem; max-width: 480px; margin: 0 auto; width: 100%; box-shadow: 0 40px 80px rgba(0,0,0,0.4); }
-        .login-header { text-align: center; margin-bottom: 1.5rem; }
-        .login-icon { width: 48px; height: 48px; background: var(--adim); border: 1px solid var(--border2); border-radius: 12px; display: flex; align-items: center; justify-content: center; margin: 0 auto 1rem; }
-        h2 { font-size: 26px; font-weight: 800; color: var(--text); margin: 0; }
-        .tab-row { display: flex; background: var(--bg3); border-radius: 10px; padding: 4px; margin-bottom: 1.5rem; gap: 4px; }
-        .tab-btn { flex: 1; padding: 9px; border: none; border-radius: 7px; background: transparent; color: var(--text2); font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-family: var(--sans); }
-        .tab-btn.active { background: var(--accent); color: #050810; }
-        .tab-desc { color: var(--text2); font-size: 14px; line-height: 1.6; margin-bottom: 1.5rem; }
-        .input-group { position: relative; margin-bottom: 1.25rem; }
-        .input-icon { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--text3); }
-        input { width: 100%; background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; padding: 14px 14px 14px 48px; color: var(--text); font-family: var(--sans); font-size: 15px; transition: all 0.2s; box-sizing: border-box; }
-        input:focus { outline: none; border-color: var(--accent); background: var(--surf); }
-        .btn-full { width: 100%; display: flex; justify-content: center; gap: 10px; padding: 14px; font-size: 15px; box-sizing: border-box; }
-        .login-footer { margin-top: 1.5rem; text-align: center; font-size: 13px; color: var(--text3); }
-        .link-btn { background: none; border: none; color: var(--accent); font-weight: 700; cursor: pointer; font-size: 13px; font-family: var(--sans); padding: 0; margin-left: 4px; }
-        .reg-error { background: rgba(255,80,80,0.1); border: 1px solid rgba(255,80,80,0.3); border-radius: 8px; padding: 10px 14px; font-size: 13px; color: #ff6060; margin-bottom: 1rem; }
-        .animate-spin { animation: spin 1s linear infinite; }
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        /* Layout */
+        .lp-wrap {
+          display: flex; min-height: 100vh;
+        }
+
+        /* Left brand panel */
+        .lp-brand {
+          flex: 0 0 420px;
+          background: linear-gradient(160deg, #031a10 0%, #042e1c 60%, #051f12 100%);
+          border-right: 1px solid rgba(5,150,105,0.2);
+          display: flex; align-items: center; justify-content: center;
+          padding: 3rem;
+        }
+        .brand-inner { max-width: 300px; }
+        .brand-logo {
+          font-size: 32px; font-weight: 900; color: #f9fafb;
+          letter-spacing: -1px; margin-bottom: 0.5rem;
+        }
+        .brand-logo span { color: #34d399; }
+        .brand-tagline {
+          color: #6b7280; font-size: 15px; margin-bottom: 2.5rem;
+          font-style: italic;
+        }
+        .feature-list { display: flex; flex-direction: column; gap: 14px; }
+        .feature-item {
+          display: flex; align-items: center; gap: 12px;
+          color: #d1d5db; font-size: 14px;
+        }
+        .feat-icon {
+          width: 30px; height: 30px; border-radius: 8px;
+          background: rgba(52,211,153,0.1); border: 1px solid rgba(52,211,153,0.2);
+          display: flex; align-items: center; justify-content: center;
+          color: #34d399; flex-shrink: 0;
+        }
+
+        /* Right form panel */
+        .lp-form-side {
+          flex: 1; display: flex; align-items: center;
+          justify-content: center; padding: 2rem;
+          background: var(--bg);
+        }
+        .lp-card {
+          width: 100%; max-width: 420px;
+          background: var(--bg2);
+          border: 1px solid var(--border);
+          border-radius: 20px;
+          padding: 2.5rem;
+          box-shadow: 0 32px 64px rgba(0,0,0,0.35);
+        }
+
+        /* Tabs */
+        .tab-row {
+          display: flex; background: var(--bg3);
+          border-radius: 10px; padding: 4px;
+          margin-bottom: 2rem; gap: 4px;
+        }
+        .tab-btn {
+          flex: 1; padding: 10px 0; border: none; border-radius: 7px;
+          background: transparent; color: var(--text2);
+          font-size: 14px; font-weight: 600; cursor: pointer;
+          transition: all 0.2s; font-family: var(--sans);
+        }
+        .tab-btn.active { background: #059669; color: #fff; }
+        .tab-btn:not(.active):hover { background: var(--border); color: var(--text); }
+
+        /* Form elements */
+        .form-hint { color: var(--text2); font-size: 13.5px; line-height: 1.6; margin: 0 0 1.5rem; }
+        .field-label {
+          display: block; font-size: 11px; font-weight: 700;
+          color: var(--text3); text-transform: uppercase;
+          letter-spacing: .08em; margin-bottom: 6px; font-family: var(--mono);
+        }
+        .input-wrap { position: relative; margin-bottom: 1.25rem; }
+        .inp-icon {
+          position: absolute; left: 14px; top: 50%;
+          transform: translateY(-50%); color: var(--text3);
+        }
+        input {
+          width: 100%; background: var(--bg3);
+          border: 1px solid var(--border); border-radius: 10px;
+          padding: 13px 14px 13px 42px; color: var(--text);
+          font-family: var(--sans); font-size: 15px;
+          transition: border 0.2s, background 0.2s; box-sizing: border-box;
+        }
+        input:focus { outline: none; border-color: #059669; background: var(--surf, #0d1524); }
+        input::placeholder { color: var(--text3); }
+
+        /* Button */
+        .btn-submit {
+          width: 100%; background: #059669; color: #fff;
+          border: none; border-radius: 10px;
+          padding: 14px; font-family: var(--sans);
+          font-size: 15px; font-weight: 700;
+          cursor: pointer; display: flex;
+          align-items: center; justify-content: center; gap: 8px;
+          transition: background 0.2s, transform 0.1s;
+          margin-top: 0.5rem;
+        }
+        .btn-submit:hover:not(:disabled) { background: #047857; transform: translateY(-1px); }
+        .btn-submit:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        /* Messages */
+        .msg-error {
+          background: rgba(239,68,68,0.08);
+          border: 1px solid rgba(239,68,68,0.25);
+          border-radius: 8px; padding: 10px 14px;
+          font-size: 13px; color: #f87171; margin-bottom: 1rem;
+          line-height: 1.5;
+        }
+
+        /* Footer */
+        .form-footer {
+          margin-top: 1.5rem; text-align: center;
+          font-size: 13px; color: var(--text3);
+        }
+        .link-btn {
+          background: none; border: none; color: #34d399;
+          font-weight: 700; cursor: pointer; font-size: 13px;
+          font-family: var(--sans); padding: 0; margin-left: 3px;
+          text-decoration: underline; text-decoration-color: transparent;
+          transition: text-decoration-color 0.2s;
+        }
+        .link-btn:hover { text-decoration-color: #34d399; }
+
+        /* Success state */
+        .success-state {
+          text-align: center; padding: 2rem 0;
+        }
+        .success-icon { color: #34d399; margin: 0 auto 1rem; display: block; }
+        .success-state h3 { color: var(--text); font-size: 20px; margin: 0 0 0.5rem; }
+        .success-state p { color: var(--text2); font-size: 14px; margin: 0; }
+
+        /* Spinner */
+        .spin { animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Mobile */
+        @media (max-width: 768px) {
+          .lp-wrap { flex-direction: column; }
+          .lp-brand { flex: none; padding: 2rem; border-right: none; border-bottom: 1px solid rgba(5,150,105,0.2); }
+          .brand-logo { font-size: 26px; }
+          .brand-tagline { margin-bottom: 1.25rem; }
+          .feature-list { flex-direction: row; flex-wrap: wrap; gap: 10px; }
+          .lp-form-side { padding: 1.5rem 1rem; }
+          .lp-card { padding: 1.75rem; }
+        }
       `}</style>
         </div>
     );

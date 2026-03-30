@@ -18,7 +18,7 @@ Routes:
 Run: gunicorn -w 2 -b 0.0.0.0:8767 portal:app
 """
 
-import os, secrets, hashlib, logging, base64
+import os, secrets, hashlib, logging, base64, threading
 from datetime import datetime, timedelta
 from functools import wraps
 
@@ -173,10 +173,14 @@ def api_register():
         session["email"]  = email
         return jsonify({"ok": True, "email": email, "redirect": "/dashboard"})
 
-    # Check if already registered
+    # If already registered but no subscription — sign them in and send to pricing
+    # (handles retry after a previous server error that still committed the DB row)
     existing = get_user(email=email)
     if existing:
-        return jsonify({"error": "This email is already registered. Please sign in or purchase a plan."}), 409
+        session.permanent = True
+        session["email"]  = email
+        log.info(f"Re-login for registered user (no sub): {email}")
+        return jsonify({"ok": True, "email": email, "redirect": "/pricing"})
 
     try:
         register_user(name=name, email=email)
@@ -190,17 +194,18 @@ def api_register():
 
     log.info(f"New user registered: {name} <{email}>")
 
-    # Welcome email to the new user
-    try:
-        send_user_welcome_email(user_name=name, user_email=email)
-    except Exception as e:
-        log.error(f"Welcome email failed: {e}")
+    # Send emails in background so they never block or crash the response
+    def _send_emails():
+        try:
+            send_user_welcome_email(user_name=name, user_email=email)
+        except Exception as e:
+            log.error(f"Welcome email failed: {e}")
+        try:
+            send_registration_notification(user_name=name, user_email=email)
+        except Exception as e:
+            log.error(f"Admin notification failed: {e}")
 
-    # Notify admin
-    try:
-        send_registration_notification(user_name=name, user_email=email)
-    except Exception as e:
-        log.error(f"Admin notification failed: {e}")
+    threading.Thread(target=_send_emails, daemon=True).start()
 
     return jsonify({"ok": True, "email": email, "redirect": "/pricing"})
 
