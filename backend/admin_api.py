@@ -18,7 +18,7 @@ load_dotenv()
 
 import sys
 sys.path.insert(0, os.path.dirname(__file__))
-from database import db_init, get_all_users, get_all_subscriptions
+from database import db_init, get_all_users, get_all_subscriptions, admin_update_subscription
 
 from multiserver import (
     load_servers,
@@ -265,6 +265,28 @@ def restart_vpn():
     if code == 0:
         return jsonify({"ok": True})
     return jsonify({"error": "ipsec restart returned non-zero exit code"}), 500
+
+
+@app.route("/api/subscribers/<path:email>", methods=["PUT"])
+def update_subscriber(email):
+    _require_auth()
+    data   = request.get_json(silent=True) or {}
+    action = data.get("action", "")
+    days   = max(1, min(int(data.get("days", 30)), 3650))
+
+    if action == "extend":
+        admin_update_subscription(email, status="active", extend_days=days)
+    elif action == "activate":
+        admin_update_subscription(email, status="active")
+    elif action == "suspend":
+        admin_update_subscription(email, status="disabled")
+    elif action == "expire":
+        admin_update_subscription(email, status="expired")
+    else:
+        return jsonify({"error": f"Unknown action: {action}"}), 400
+
+    log.info(f"Admin {action} on {email}")
+    return jsonify({"ok": True, "email": email, "action": action})
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

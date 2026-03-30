@@ -165,6 +165,26 @@ const Admin = () => {
         }
     };
 
+    const handleSubAction = async (email, action, days = 30) => {
+        const labels = { extend: `Extend ${days}d`, activate: 'Activate', suspend: 'Suspend', expire: 'Expire' };
+        if (!window.confirm(`${labels[action] || action} for ${email}?`)) return;
+        try {
+            const res = await apiFetch(`/api/subscribers/${encodeURIComponent(email)}`, {
+                method: 'PUT',
+                body: JSON.stringify({ action, days }),
+            });
+            const data = await res.json();
+            if (res.ok) {
+                showToast(`${labels[action]} applied to ${email}`);
+                refresh();
+            } else {
+                showToast(data.error || 'Action failed', 'err');
+            }
+        } catch {
+            showToast('API error', 'err');
+        }
+    };
+
     const generatePass = () => {
         const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$';
         return Array.from({ length: 18 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
@@ -401,6 +421,7 @@ const Admin = () => {
                                         <th>Plan</th>
                                         <th>Status</th>
                                         <th>Expires</th>
+                                        <th>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -409,13 +430,20 @@ const Admin = () => {
                                             <td>{s.name}</td>
                                             <td className="mono">{s.email}</td>
                                             <td className="mono muted">{s.created_at ? s.created_at.slice(0, 10) : '—'}</td>
-                                            <td>{s.plan || '—'}</td>
-                                            <td>
+                                        <td>{s.plan_name || '—'}</td>
+                                        <td>
                                                 <span className={`sub-badge ${s.sub_status === 'active' ? 'active' : s.sub_status === 'expired' ? 'expired' : 'none'}`}>
                                                     {s.sub_status || 'none'}
                                                 </span>
                                             </td>
                                             <td className="mono muted">{s.expires_at ? s.expires_at.slice(0, 10) : '—'}</td>
+                                            <td>
+                                                <div className="sub-actions">
+                                                    <button className="sub-btn ext" onClick={() => handleSubAction(s.email, 'extend', 30)} title="Extend 30 days">+30d</button>
+                                                    {s.sub_status !== 'active' && <button className="sub-btn act" onClick={() => handleSubAction(s.email, 'activate')} title="Activate">Activate</button>}
+                                                    {s.sub_status === 'active' && <button className="sub-btn sus" onClick={() => handleSubAction(s.email, 'suspend')} title="Suspend">Suspend</button>}
+                                                </div>
+                                            </td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -651,6 +679,12 @@ const Admin = () => {
         .sub-badge.active { color: var(--accent); background: var(--adim); border: 1px solid rgba(74,222,128,0.2); }
         .sub-badge.expired { color: var(--red); background: rgba(244,63,94,0.08); border: 1px solid rgba(244,63,94,0.2); }
         .sub-badge.none { color: var(--text3); background: var(--bg3); border: 1px solid var(--border); }
+        .sub-actions { display: flex; gap: 5px; }
+        .sub-btn { padding: 3px 8px; border-radius: 5px; border: 1px solid; font-size: 10px; font-weight: 700; cursor: pointer; font-family: var(--mono); transition: opacity 0.15s; }
+        .sub-btn:hover { opacity: 0.75; }
+        .sub-btn.ext { background: rgba(168,85,247,0.1); border-color: rgba(168,85,247,0.3); color: var(--accent); }
+        .sub-btn.act { background: rgba(74,222,128,0.08); border-color: rgba(74,222,128,0.25); color: var(--green, #4ade80); }
+        .sub-btn.sus { background: rgba(251,146,60,0.08); border-color: rgba(251,146,60,0.25); color: var(--amber, #fb923c); }
       `}</style>
         </div>
     );

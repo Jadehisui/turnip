@@ -178,6 +178,40 @@ def update_subscription_status(email: str, status: str):
         """, (status, email))
 
 
+def admin_update_subscription(email: str, status: str = None,
+                              expires_at: str = None, extend_days: int = None):
+    """Admin: update subscription status and/or extend expiry."""
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        if extend_days:
+            row = conn.execute(
+                "SELECT expires_at FROM subscriptions WHERE email=? ORDER BY id DESC LIMIT 1",
+                (email,)
+            ).fetchone()
+            base = datetime.utcnow()
+            if row:
+                try:
+                    current_expiry = datetime.fromisoformat(row["expires_at"])
+                    base = max(current_expiry, datetime.utcnow())
+                except Exception:
+                    pass
+            expires_at = (base + timedelta(days=extend_days)).isoformat()
+
+        updates = ["updated_at=?"]
+        params  = [now]
+        if status:
+            updates.append("status=?")
+            params.append(status)
+        if expires_at:
+            updates.append("expires_at=?")
+            params.append(expires_at)
+        params.append(email)
+        conn.execute(
+            f"UPDATE subscriptions SET {', '.join(updates)} WHERE email=?",
+            params
+        )
+
+
 # ── Read operations ────────────────────────────────────────────────────────────
 
 def get_subscription(reference: str = None, email: str = None, wallet: str = None) -> dict | None:

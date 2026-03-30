@@ -18,7 +18,7 @@ Routes:
 Run: gunicorn -w 2 -b 0.0.0.0:8767 portal:app
 """
 
-import os, secrets, hashlib, logging, base64, threading
+import os, secrets, hashlib, logging, base64, threading, time
 from datetime import datetime, timedelta
 from functools import wraps
 
@@ -46,9 +46,9 @@ log = logging.getLogger(__name__)
 # Import shared modules from payment backend
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../backend"))
-from database import db_init, get_subscription, get_all_subscriptions, record_payment, get_devices_for_email, register_user, get_user
+from database import db_init, get_subscription, get_all_subscriptions, record_payment, get_devices_for_email, register_user, get_user, admin_update_subscription
 from provisioner import provision_user, deprovision_user, generate_password, generate_mobileconfig, get_plan_for_amount, get_server_host, PLANS, CA_CERT_PATH, SERVERS
-from emailer import send_registration_notification, send_user_welcome_email
+from emailer import send_registration_notification, send_user_welcome_email, send_otp_email
 
 app = Flask(__name__, 
             static_folder='frontend/dist', 
@@ -57,6 +57,10 @@ app.secret_key      = os.environ.get("PORTAL_SECRET_KEY", secrets.token_hex(32))
 app.permanent_session_lifetime = timedelta(hours=12)
 
 db_init()  # ensure tables exist whether running via gunicorn or directly
+
+# OTP store: email → (code, expiry_timestamp). In-memory, cleared on verify or expiry.
+_otp_store: dict = {}
+_OTP_TTL = 600  # 10 minutes
 
 VPN_SERVER_ADDR = os.environ.get("VPN_SERVER_ADDR", "vpn.yourdomain.com")
 SITE_URL        = os.environ.get("SITE_URL", "")
@@ -139,20 +143,65 @@ def login_page():
 
 @app.route("/api/auth/login", methods=["POST"])
 def api_login():
-    data = request.get_json()
+    data = request.get_json() or {}
     email = data.get("email", "").strip().lower()
     if not email or "@" not in email:
         return jsonify({"error": "Enter a valid email address"}), 400
 
     sub = get_subscription(email=email)
     if not sub:
-        return jsonify({"error": "No account found with this email. Please check your plans."}), 404
+        # Also allow registered users without a sub (e.g. registered but not yet paid)
+        user = get_user(email=email)
+        if not user:
+            return jsonify({"error": "No account found with this email."}), 404
 
-    # Set session
+    # Generate 6-digit OTP
+    import random
+    code = f"{random.SystemRandom().randint(0, 999999):06d}"
+    _otp_store[email] = (code, time.time() + _OTP_TTL)
+    log.info(f"OTP generated for {email}")
+
+    # Send in background so slow SMTP doesn't block the response
+    def _send():
+        try:
+            send_otp_email(email, code)
+        except Exception as exc:
+            log.error(f"OTP email failed for {email}: {exc}")
+    threading.Thread(target=_send, daemon=True).start()
+
+    return jsonify({"step": "otp", "email": email})
+
+
+@app.route("/api/auth/verify-otp", methods=["POST"])
+def api_verify_otp():
+    data  = request.get_json() or {}
+    email = data.get("email", "").strip().lower()
+    code  = str(data.get("code", "")).strip()
+
+    if not email or not code:
+        return jsonify({"error": "Email and code are required"}), 400
+
+    entry = _otp_store.get(email)
+    if not entry:
+        return jsonify({"error": "Code expired or not requested. Please try again."}), 400
+
+    stored_code, expiry = entry
+    if time.time() > expiry:
+        _otp_store.pop(email, None)
+        return jsonify({"error": "Code has expired. Please request a new one."}), 400
+
+    if code != stored_code:
+        return jsonify({"error": "Incorrect code. Please check your email."}), 400
+
+    # Code is valid — consume it and create session
+    _otp_store.pop(email, None)
     session.permanent = True
     session["email"]  = email
-    log.info(f"API Login: {email}")
-    return jsonify({"ok": True, "email": email})
+    log.info(f"OTP verified, session started: {email}")
+
+    sub = get_subscription(email=email)
+    redirect_to = "/dashboard" if sub else "/pricing"
+    return jsonify({"ok": True, "redirect": redirect_to})
 
 
 @app.route("/api/auth/register", methods=["POST"])

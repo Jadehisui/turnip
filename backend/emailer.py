@@ -142,6 +142,46 @@ def send_registration_notification(user_name: str, user_email: str):
         log.error(f"Failed to send admin notification: {e}")
 
 
+def send_otp_email(to_email: str, code: str):
+    """Send a one-time 6-digit login code email."""
+    subject = f"{code} — Your Turnip VPN login code"
+    text = (
+        f"Your one-time login code is: {code}\n\n"
+        f"Enter this on the Turnip VPN sign-in page. It expires in 10 minutes.\n\n"
+        f"If you didn't request this, you can safely ignore this email.\n\n"
+        f"— The Turnip VPN Team"
+    )
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#020205;font-family:sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0">
+    <tr><td align="center" style="padding:40px 16px">
+      <table width="480" cellpadding="0" cellspacing="0" style="background:#080812;border-radius:16px;overflow:hidden;border:1px solid rgba(168,85,247,0.2)">
+        <tr><td style="background:linear-gradient(135deg,#a855f7 0%,#7c3aed 100%);padding:28px 36px">
+          <h1 style="margin:0;color:#fff;font-size:20px;font-weight:800">Turnip<span style="color:#f3e8ff">VPN</span></h1>
+        </td></tr>
+        <tr><td style="padding:36px;text-align:center">
+          <p style="margin:0 0 8px;color:#6b7280;font-size:13px;text-transform:uppercase;letter-spacing:.08em">Sign-in code</p>
+          <div style="font-size:44px;font-weight:900;letter-spacing:14px;color:#a855f7;font-family:monospace;margin:16px 0 24px">{code}</div>
+          <p style="color:#9ca3af;font-size:14px;line-height:1.6;margin:0 0 8px">
+            Enter this code on the Turnip VPN login page. It expires in <strong style="color:#f9fafb">10 minutes</strong>.
+          </p>
+          <p style="color:#6b7280;font-size:12px;margin:0">If you didn't request this, you can safely ignore this email.</p>
+        </td></tr>
+        <tr><td style="padding:16px 36px;border-top:1px solid rgba(255,255,255,0.05)">
+          <p style="margin:0;color:#374151;font-size:11px;text-align:center">Turnip VPN &middot; One-time login code</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>"""
+    if EMAIL_PROVIDER == "sendgrid":
+        _send_simple_sendgrid(to_email, subject, html, text)
+    else:
+        _send_simple_smtp(to_email, subject, html, text)
+    log.info(f"OTP email sent to {to_email}")
+
+
 def _send_simple_smtp(to: str, subject: str, html: str, text: str):
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
