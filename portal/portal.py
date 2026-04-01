@@ -32,7 +32,7 @@ from siwe import SiweMessage
 from eth_account.messages import encode_defunct
 from eth_account import Account
 
-load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
