@@ -46,9 +46,9 @@ log = logging.getLogger(__name__)
 # Import shared modules from payment backend
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../backend"))
-from database import db_init, get_subscription, get_all_subscriptions, record_payment, get_devices_for_email, register_user, get_user, admin_update_subscription
+from database import db_init, get_subscription, get_all_subscriptions, record_payment, get_devices_for_email, register_user, get_user, admin_update_subscription, store_otp, verify_and_consume_otp
 from provisioner import provision_user, deprovision_user, generate_password, generate_mobileconfig, get_plan_for_amount, get_server_host, PLANS, CA_CERT_PATH, SERVERS
-from emailer import send_registration_notification, send_user_welcome_email, send_otp_email
+from emailer import send_registration_notification, send_user_welcome_email, send_otp_email, send_welcome_email
 
 app = Flask(__name__, 
             static_folder='frontend/dist', 
@@ -58,8 +58,6 @@ app.permanent_session_lifetime = timedelta(hours=12)
 
 db_init()  # ensure tables exist whether running via gunicorn or directly
 
-# OTP store: email → (code, expiry_timestamp). In-memory, cleared on verify or expiry.
-_otp_store: dict = {}
 _OTP_TTL = 600  # 10 minutes
 
 VPN_SERVER_ADDR = os.environ.get("VPN_SERVER_ADDR", "vpn.yourdomain.com")
@@ -155,10 +153,10 @@ def api_login():
         if not user:
             return jsonify({"error": "No account found with this email."}), 404
 
-    # Generate 6-digit OTP
+    # Generate 6-digit OTP and persist in DB so all gunicorn workers share it
     import random
     code = f"{random.SystemRandom().randint(0, 999999):06d}"
-    _otp_store[email] = (code, time.time() + _OTP_TTL)
+    store_otp(email, code, time.time() + _OTP_TTL)
     log.info(f"OTP generated for {email}")
 
     # Send in background so slow SMTP doesn't block the response
@@ -181,20 +179,9 @@ def api_verify_otp():
     if not email or not code:
         return jsonify({"error": "Email and code are required"}), 400
 
-    entry = _otp_store.get(email)
-    if not entry:
-        return jsonify({"error": "Code expired or not requested. Please try again."}), 400
-
-    stored_code, expiry = entry
-    if time.time() > expiry:
-        _otp_store.pop(email, None)
-        return jsonify({"error": "Code has expired. Please request a new one."}), 400
-
-    if code != stored_code:
-        return jsonify({"error": "Incorrect code. Please check your email."}), 400
-
-    # Code is valid — consume it and create session
-    _otp_store.pop(email, None)
+    ok, err = verify_and_consume_otp(email, code)
+    if not ok:
+        return jsonify({"error": err}), 400
     session.permanent = True
     session["email"]  = email
     log.info(f"OTP verified, session started: {email}")
@@ -257,24 +244,6 @@ def api_register():
     threading.Thread(target=_send_emails, daemon=True).start()
 
     return jsonify({"ok": True, "email": email, "redirect": "/pricing"})
-
-
-@app.route("/login", methods=["POST"])
-def login_post():
-    email = request.form.get("email", "").strip().lower()
-    if not email or "@" not in email:
-        return redirect(url_for("login_page", error="Enter a valid email address"))
-
-    sub = get_subscription(email=email)
-    if not sub:
-        # Don't reveal whether account exists — send magic link feel
-        return render_template_string(LOGIN_CHECK_EMAIL_TEMPLATE, email=email)
-
-    # Set session
-    session.permanent = True
-    session["email"]  = email
-    log.info(f"Login: {email}")
-    return redirect(url_for("dashboard"))
 
 
 @app.route("/logout")
@@ -524,6 +493,47 @@ def auth_wallet():
 def pricing():
     # Pricing is handled by the React SPA
     return send_from_directory(app.static_folder, 'index.html')
+
+
+@app.route("/webhook/nowpayments", methods=["POST"])
+def nowpayments_webhook():
+    """BUG-8 fix: NOWPayments IPN fires at the public site URL (this port).
+    Handle it here so crypto payments actually complete provisioning."""
+    import json, traceback
+    from crypto_payments import verify_nowpayments_signature, handle_successful_payment, NGN_TO_USD_RATE
+
+    payload   = request.get_data()
+    signature = request.headers.get("x-nowpayments-sig", "")
+
+    if not verify_nowpayments_signature(payload, signature):
+        log.warning("Invalid NOWPayments signature — rejected")
+        return jsonify({"error": "invalid signature"}), 401
+
+    try:
+        event          = json.loads(payload)
+        payment_status = event.get("payment_status")
+
+        if payment_status != "finished":
+            log.info(f"NOWPayments status={payment_status} — not yet finished, skipping")
+            return jsonify({"status": "ok"}), 200
+
+        order_id = event.get("order_id", "")
+        parts    = order_id.split("::")
+        if len(parts) < 2:
+            log.error(f"Unexpected order_id format: {order_id!r}")
+            return jsonify({"status": "error"}), 200
+
+        email      = parts[0]
+        plan_code  = parts[1]
+        amount_ngn = float(parts[2]) if len(parts) >= 3 else float(event.get("price_amount", 0)) * NGN_TO_USD_RATE
+        reference  = f"np_{event.get('payment_id', '')}"
+
+        handle_successful_payment(email, amount_ngn, reference, order_id=order_id)
+        return jsonify({"status": "ok"}), 200
+
+    except Exception as e:
+        log.error(f"NOWPayments webhook error: {e}\n{traceback.format_exc()}")
+        return jsonify({"status": "error"}), 200
 
 
 @app.route("/api/servers")

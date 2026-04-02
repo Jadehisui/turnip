@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../backend"))
 from provisioner import provision_user, deprovision_user, PLANS
-from database import db_init, record_payment, get_subscription, update_subscription_status
+from database import db_init, record_payment, get_subscription, update_subscription_status, get_devices_for_email
 from emailer import send_welcome_email
 
 load_dotenv()
@@ -107,28 +107,56 @@ def handle_subscription_created(data: dict, meta: dict):
 
 
 def handle_subscription_payment_success(data: dict, meta: dict):
-    """Recurring renewal — re-provision (extends expiry in DB)."""
+    """Recurring renewal — deprovision old credentials, then re-provision with extended expiry."""
     attrs       = data.get("attributes", {})
     email       = attrs.get("user_email", "")
     reference   = f"renewal_{data.get('id', '')}_{attrs.get('updated_at', '')}"
     custom_data = meta.get("custom_data") or {}
     plan_code   = custom_data.get("plan_code", "pro")
-    region      = custom_data.get("region", "eu")
+
+    # BUG-2: LS does not re-send custom_data on auto-renewals — fall back to stored region
+    region = custom_data.get("region") or ""
+    if not region:
+        existing_sub = get_subscription(email=email)
+        region = (existing_sub or {}).get("server_region", "eu")
 
     log.info(f"subscription_payment_success: {email} | plan={plan_code} | region={region}")
+
+    # BUG-1: Remove old ipsec.secrets entries before creating new ones
+    existing_devices = get_devices_for_email(email)
+    for dev in existing_devices:
+        try:
+            deprovision_user(dev["username"])
+        except Exception as exc:
+            log.warning(f"Could not deprovision {dev['username']} before renewal: {exc}")
+
     _provision_and_record(email, plan_code, reference, region)
 
 
 def handle_subscription_cancelled(data: dict, meta: dict):
-    """Subscription cancelled — disable VPN account immediately."""
+    """Subscription cancelled — disable all VPN devices immediately."""
     email = data.get("attributes", {}).get("user_email", "")
     log.info(f"subscription_cancelled: {email}")
 
-    sub = get_subscription(email=email)
-    if sub and sub.get("username"):
-        deprovision_user(sub["username"])
-        update_subscription_status(email, "disabled")
-        log.info(f"VPN account disabled: {sub['username']}")
+    # BUG-3: Deprovision ALL devices, not just Device 1
+    devices = get_devices_for_email(email)
+    if devices:
+        for dev in devices:
+            try:
+                deprovision_user(dev["username"])
+            except Exception as exc:
+                log.warning(f"Could not deprovision {dev['username']}: {exc}")
+    else:
+        # Fallback for legacy single-credential subscriptions
+        sub = get_subscription(email=email)
+        if sub and sub.get("username"):
+            try:
+                deprovision_user(sub["username"])
+            except Exception as exc:
+                log.warning(f"Could not deprovision {sub['username']}: {exc}")
+
+    update_subscription_status(email, "disabled")
+    log.info(f"All VPN credentials disabled for {email}")
 
 
 def handle_subscription_expired(data: dict, meta: dict):

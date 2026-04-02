@@ -88,6 +88,12 @@ def db_init():
                 created_at   TEXT NOT NULL DEFAULT (datetime('now'))
             );
 
+            CREATE TABLE IF NOT EXISTS otps (
+                email      TEXT PRIMARY KEY,
+                code       TEXT NOT NULL,
+                expires_at REAL NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_sub_email     ON subscriptions(email);
             CREATE INDEX IF NOT EXISTS idx_sub_username  ON subscriptions(username);
             CREATE INDEX IF NOT EXISTS idx_dev_email     ON subscription_devices(email);
@@ -100,6 +106,39 @@ def db_init():
         except Exception:
             pass  # column already exists
     log.info(f"Database initialised at {DB_PATH}")
+
+
+# ── OTP helpers ────────────────────────────────────────────────────────────────
+
+def store_otp(email: str, code: str, expires_at: float):
+    """Persist a one-time password for an email (upsert — one OTP per email at a time)."""
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO otps (email, code, expires_at) VALUES (?, ?, ?)",
+            (email, code, expires_at),
+        )
+
+
+def verify_and_consume_otp(email: str, code: str) -> tuple:
+    """
+    Check the stored OTP for email against code.
+    Returns (True, None) on success and deletes the OTP row.
+    Returns (False, error_message) on failure; also deletes expired rows.
+    """
+    import time
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT code, expires_at FROM otps WHERE email = ?", (email,)
+        ).fetchone()
+        if not row:
+            return False, "Code expired or not requested. Please try again."
+        if time.time() > row["expires_at"]:
+            conn.execute("DELETE FROM otps WHERE email = ?", (email,))
+            return False, "Code has expired. Please request a new one."
+        if code != row["code"]:
+            return False, "Incorrect code. Please check your email."
+        conn.execute("DELETE FROM otps WHERE email = ?", (email,))
+        return True, None
 
 
 # ── Write operations ───────────────────────────────────────────────────────────
