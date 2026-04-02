@@ -6,8 +6,8 @@ Sends the welcome email with:
   - .mobileconfig attachment (iOS/macOS one-tap install)
   - Setup instructions for Windows, Android, Linux
 
-Supports SMTP (any provider) and SendGrid.
-Set EMAIL_PROVIDER=smtp or sendgrid in .env
+Supports SMTP (any provider), SendGrid, and Resend.
+Set EMAIL_PROVIDER=smtp | sendgrid | resend in .env
 """
 
 import os, base64, smtplib, logging
@@ -18,7 +18,7 @@ from email import encoders
 
 log = logging.getLogger(__name__)
 
-EMAIL_PROVIDER  = os.environ.get("EMAIL_PROVIDER",  "smtp")      # smtp | sendgrid
+EMAIL_PROVIDER  = os.environ.get("EMAIL_PROVIDER",  "smtp")      # smtp | sendgrid | resend
 SMTP_HOST       = os.environ.get("SMTP_HOST",       "smtp.gmail.com")
 SMTP_PORT       = int(os.environ.get("SMTP_PORT",   "587"))
 SMTP_USER       = os.environ.get("SMTP_USER",       "")
@@ -26,6 +26,7 @@ SMTP_PASS       = os.environ.get("SMTP_PASS",       "")
 FROM_EMAIL      = os.environ.get("FROM_EMAIL",      "noreply@turnip.com")
 FROM_NAME       = os.environ.get("FROM_NAME",       "Turnip VPN")
 SENDGRID_KEY    = os.environ.get("SENDGRID_API_KEY","")
+RESEND_KEY      = os.environ.get("RESEND_API_KEY",  "")
 
 
 # ── Public entrypoint ─────────────────────────────────────────────────────────
@@ -40,6 +41,8 @@ def send_welcome_email(to_email: str, creds: dict, plan: dict):
 
     if EMAIL_PROVIDER == "sendgrid":
         _send_sendgrid(to_email, subject, html, text, profile, filename)
+    elif EMAIL_PROVIDER == "resend":
+        _send_resend(to_email, subject, html, text, profile, filename)
     else:
         _send_smtp(to_email, subject, html, text, profile, filename)
 
@@ -105,6 +108,8 @@ def send_user_welcome_email(user_name: str, user_email: str):
     try:
         if EMAIL_PROVIDER == "sendgrid":
             _send_simple_sendgrid(user_email, subject, html, text)
+        elif EMAIL_PROVIDER == "resend":
+            _send_simple_resend(user_email, subject, html, text)
         else:
             _send_simple_smtp(user_email, subject, html, text)
         log.info(f"Welcome email sent to {user_email}")
@@ -135,6 +140,8 @@ def send_registration_notification(user_name: str, user_email: str):
     try:
         if EMAIL_PROVIDER == "sendgrid":
             _send_simple_sendgrid(admin_to, subject, html, text)
+        elif EMAIL_PROVIDER == "resend":
+            _send_simple_resend(admin_to, subject, html, text)
         else:
             _send_simple_smtp(admin_to, subject, html, text)
         log.info(f"Admin registration notification sent for {user_email}")
@@ -177,9 +184,27 @@ def send_otp_email(to_email: str, code: str):
 </body></html>"""
     if EMAIL_PROVIDER == "sendgrid":
         _send_simple_sendgrid(to_email, subject, html, text)
+    elif EMAIL_PROVIDER == "resend":
+        _send_simple_resend(to_email, subject, html, text)
     else:
         _send_simple_smtp(to_email, subject, html, text)
     log.info(f"OTP email sent to {to_email}")
+
+
+def _send_simple_resend(to: str, subject: str, html: str, text: str):
+    try:
+        import resend
+    except ImportError:
+        log.error("resend package not installed. Run: pip install resend")
+        raise
+    resend.api_key = RESEND_KEY
+    resend.Emails.send({
+        "from": f"{FROM_NAME} <{FROM_EMAIL}>",
+        "to": [to],
+        "subject": subject,
+        "html": html,
+        "text": text,
+    })
 
 
 def _send_simple_smtp(to: str, subject: str, html: str, text: str):
@@ -283,6 +308,29 @@ def _send_sendgrid(to: str, subject: str, html: str, text: str,
     )
     message.attachment = att
     sg.send(message)
+
+
+# ── Resend sender ─────────────────────────────────────────────────────────────
+
+def _send_resend(to: str, subject: str, html: str, text: str,
+                 attachment: bytes, filename: str):
+    try:
+        import resend
+    except ImportError:
+        log.error("resend package not installed. Run: pip install resend")
+        raise
+    resend.api_key = RESEND_KEY
+    resend.Emails.send({
+        "from": f"{FROM_NAME} <{FROM_EMAIL}>",
+        "to": [to],
+        "subject": subject,
+        "html": html,
+        "text": text,
+        "attachments": [{
+            "filename": filename,
+            "content": list(attachment),
+        }],
+    })
 
 
 # ── Email templates ───────────────────────────────────────────────────────────
