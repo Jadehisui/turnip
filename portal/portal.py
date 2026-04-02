@@ -346,12 +346,16 @@ def regenerate_password():
     import subprocess
     subprocess.run(["ipsec", "secrets"], timeout=5)
 
-    # Update DB
+    # Update DB — keep subscriptions and subscription_devices in sync
     from database import get_conn
     with get_conn() as conn:
         conn.execute(
             "UPDATE subscriptions SET password=?, updated_at=datetime('now') WHERE email=?",
             (new_password, sub["email"])
+        )
+        conn.execute(
+            "UPDATE subscription_devices SET password=? WHERE email=? AND username=?",
+            (new_password, sub["email"], username)
         )
 
     log.info(f"Password regenerated: {username}")

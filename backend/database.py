@@ -253,6 +253,15 @@ def admin_update_subscription(email: str, status: str = None,
 
 # ── Read operations ────────────────────────────────────────────────────────────
 
+def payment_exists(reference: str) -> bool:
+    """Return True if a payment with this reference has already been processed (dedup check)."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM payments WHERE reference = ?", (reference,)
+        ).fetchone()
+        return row is not None
+
+
 def get_subscription(reference: str = None, email: str = None, wallet: str = None) -> dict | None:
     with get_conn() as conn:
         if reference:

@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../backend"))
 from provisioner import provision_user, deprovision_user, PLANS
-from database import db_init, record_payment, get_subscription, update_subscription_status, get_devices_for_email
+from database import db_init, record_payment, get_subscription, update_subscription_status, get_devices_for_email, payment_exists
 from emailer import send_welcome_email
 
 load_dotenv()
@@ -55,7 +55,7 @@ def verify_lemonsqueezy_signature(payload: bytes, sig_header: str) -> bool:
 
 def _provision_and_record(email: str, plan_code: str, reference: str, region: str = "eu"):
     """Find plan, provision VPN account(s), record payment, email credentials."""
-    if get_subscription(reference):
+    if payment_exists(reference):
         log.warning(f"Duplicate webhook ignored: ref={reference}")
         return
 

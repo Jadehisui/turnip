@@ -32,21 +32,30 @@ RESEND_KEY      = os.environ.get("RESEND_API_KEY",  "")
 # ── Public entrypoint ─────────────────────────────────────────────────────────
 
 def send_welcome_email(to_email: str, creds: dict, plan: dict):
-    """Send welcome email with credentials and .mobileconfig attachment."""
-    subject  = "Your Turnip VPN is ready — connect in 60 seconds"
-    html     = _build_html(creds, plan)
-    text     = _build_text(creds, plan)
-    profile  = base64.b64decode(creds["mobileconfig_b64"])
-    filename = f"turnip-{creds['username']}.mobileconfig"
+    """Send welcome email with credentials and .mobileconfig attachments for all devices."""
+    subject = "Your Turnip VPN is ready — connect in 60 seconds"
+    html    = _build_html(creds, plan)
+    text    = _build_text(creds, plan)
+
+    # Build one attachment per device
+    devices = creds.get("devices") or [{"device_number": 1, "username": creds["username"], "mobileconfig_b64": creds["mobileconfig_b64"]}]
+    attachments = [
+        (base64.b64decode(d["mobileconfig_b64"]), f"turnip-device{d['device_number']}-{d['username']}.mobileconfig")
+        for d in devices
+        if d.get("mobileconfig_b64")
+    ]
+
+    # Primary attachment (Device 1) for single-attachment APIs; extras appended below
+    primary_bytes, primary_name = attachments[0] if attachments else (b"", "turnip.mobileconfig")
 
     if EMAIL_PROVIDER == "sendgrid":
-        _send_sendgrid(to_email, subject, html, text, profile, filename)
+        _send_sendgrid(to_email, subject, html, text, primary_bytes, primary_name)
     elif EMAIL_PROVIDER == "resend":
-        _send_resend(to_email, subject, html, text, profile, filename)
+        _send_resend_multi(to_email, subject, html, text, attachments)
     else:
-        _send_smtp(to_email, subject, html, text, profile, filename)
+        _send_smtp_multi(to_email, subject, html, text, attachments)
 
-    log.info(f"Email delivered to {to_email}")
+    log.info(f"Email delivered to {to_email} ({len(attachments)} profile(s) attached)")
 
 
 def send_user_welcome_email(user_name: str, user_email: str):
@@ -245,25 +254,25 @@ def _send_simple_sendgrid(to: str, subject: str, html: str, text: str):
 
 # ── SMTP sender ───────────────────────────────────────────────────────────────
 
-def _send_smtp(to: str, subject: str, html: str, text: str,
-               attachment: bytes, filename: str):
+def _send_smtp_multi(to: str, subject: str, html: str, text: str,
+                     attachments: list):
+    """Send email with one or more .mobileconfig attachments via SMTP."""
     msg = MIMEMultipart("mixed")
     msg["Subject"] = subject
     msg["From"]    = f"{FROM_NAME} <{FROM_EMAIL}>"
     msg["To"]      = to
 
-    # Body (HTML + plain fallback)
     body = MIMEMultipart("alternative")
     body.attach(MIMEText(text, "plain"))
     body.attach(MIMEText(html, "html"))
     msg.attach(body)
 
-    # .mobileconfig attachment
-    part = MIMEBase("application", "x-apple-aspen-config")
-    part.set_payload(attachment)
-    encoders.encode_base64(part)
-    part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
-    msg.attach(part)
+    for att_bytes, att_name in attachments:
+        part = MIMEBase("application", "x-apple-aspen-config")
+        part.set_payload(att_bytes)
+        encoders.encode_base64(part)
+        part.add_header("Content-Disposition", f'attachment; filename="{att_name}"')
+        msg.attach(part)
 
     if SMTP_PORT == 465:
         with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
@@ -274,6 +283,11 @@ def _send_smtp(to: str, subject: str, html: str, text: str,
             server.starttls()
             server.login(SMTP_USER, SMTP_PASS)
             server.sendmail(FROM_EMAIL, to, msg.as_string())
+
+
+def _send_smtp(to: str, subject: str, html: str, text: str,
+               attachment: bytes, filename: str):
+    _send_smtp_multi(to, subject, html, text, [(attachment, filename)])
 
 
 # ── SendGrid sender ───────────────────────────────────────────────────────────
@@ -312,8 +326,9 @@ def _send_sendgrid(to: str, subject: str, html: str, text: str,
 
 # ── Resend sender ─────────────────────────────────────────────────────────────
 
-def _send_resend(to: str, subject: str, html: str, text: str,
-                 attachment: bytes, filename: str):
+def _send_resend_multi(to: str, subject: str, html: str, text: str,
+                       attachments: list):
+    """Send email with one or more .mobileconfig attachments via Resend."""
     try:
         import resend
     except ImportError:
@@ -326,18 +341,61 @@ def _send_resend(to: str, subject: str, html: str, text: str,
         "subject": subject,
         "html": html,
         "text": text,
-        "attachments": [{
-            "filename": filename,
-            "content": list(attachment),
-        }],
+        "attachments": [
+            {"filename": att_name, "content": list(att_bytes)}
+            for att_bytes, att_name in attachments
+        ],
     })
+
+
+def _send_resend(to: str, subject: str, html: str, text: str,
+                 attachment: bytes, filename: str):
+    _send_resend_multi(to, subject, html, text, [(attachment, filename)])
 
 
 # ── Email templates ───────────────────────────────────────────────────────────
 
+def _device_cred_block_html(devices: list) -> str:
+    """Render credential rows for all devices."""
+    if len(devices) == 1:
+        d = devices[0]
+        return f"""
+      <div class="cred-row">
+        <span class="cred-label">Username</span>
+        <span class="cred-value">{d['username']}</span>
+      </div>
+      <div class="cred-row">
+        <span class="cred-label">Password</span>
+        <span class="cred-value">{d['password']}</span>
+      </div>
+      <div class="cred-row">
+        <span class="cred-label">Server</span>
+        <span class="cred-value">{d['server']}</span>
+      </div>"""
+    blocks = []
+    for d in devices:
+        n = d['device_number']
+        blocks.append(f"""
+      <tr><td colspan="2" style="padding:10px 0 4px;color:#00c896;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em">Device {n}</td></tr>
+      <tr><td class="cred-label">Username</td><td class="cred-value" style="font-family:'Courier New',monospace;font-size:13px;color:#00c896;font-weight:700">{d['username']}</td></tr>
+      <tr><td class="cred-label">Password</td><td class="cred-value" style="font-family:'Courier New',monospace;font-size:13px;color:#00c896;font-weight:700">{d['password']}</td></tr>
+      <tr><td class="cred-label">Server</td><td class="cred-value" style="font-family:'Courier New',monospace;font-size:13px;color:#00c896;font-weight:700">{d['server']}</td></tr>""")
+    return "<table style='width:100%;border-collapse:collapse'>" + "".join(blocks) + "</table>"
+
+
+def _device_cred_block_text(devices: list) -> str:
+    if len(devices) == 1:
+        d = devices[0]
+        return f"Username : {d['username']}\nPassword : {d['password']}\nServer   : {d['server']}"
+    lines = []
+    for d in devices:
+        lines.append(f"Device {d['device_number']}\n  Username : {d['username']}\n  Password : {d['password']}\n  Server   : {d['server']}")
+    return "\n".join(lines)
+
+
 def _build_html(creds: dict, plan: dict) -> str:
+    devices  = creds.get("devices") or [{"device_number": 1, "username": creds["username"], "password": creds["password"], "server": creds["server"]}]
     username = creds["username"]
-    password = creds["password"]
     server   = creds["server"]
     expiry   = creds["expiry_display"]
     plan_name= plan["name"]
@@ -380,18 +438,7 @@ def _build_html(creds: dict, plan: dict) -> str:
     <p>Your account is live. Open the attached <strong style="color:#e8f0fe">.mobileconfig</strong> file on iOS or macOS to connect in one tap — no manual setup needed.</p>
 
     <div class="cred-block">
-      <div class="cred-row">
-        <span class="cred-label">Username</span>
-        <span class="cred-value">{username}</span>
-      </div>
-      <div class="cred-row">
-        <span class="cred-label">Password</span>
-        <span class="cred-value">{password}</span>
-      </div>
-      <div class="cred-row">
-        <span class="cred-label">Server</span>
-        <span class="cred-value">{server}</span>
-      </div>
+      {_device_cred_block_html(devices)}
       <div class="cred-row">
         <span class="cred-label">VPN Type</span>
         <span class="cred-value">IKEv2 / IPsec</span>
@@ -449,21 +496,21 @@ def _build_html(creds: dict, plan: dict) -> str:
 
 
 def _build_text(creds: dict, plan: dict) -> str:
+    devices = creds.get("devices") or [{"device_number": 1, "username": creds["username"], "password": creds["password"], "server": creds["server"]}]
+    cred_lines = _device_cred_block_text(devices)
     return f"""Turnip VPN — Your account is ready
 
 Plan: {plan['name']}
 
 VPN CREDENTIALS
 ───────────────
-Username : {creds['username']}
-Password : {creds['password']}
-Server   : {creds['server']}
+{cred_lines}
 VPN Type : IKEv2 / IPsec
 Expires  : {creds['expiry_display']}
 
 SETUP
 ─────
-iOS/macOS : Open the attached .mobileconfig file and tap Install
+iOS/macOS : Open an attached .mobileconfig file and tap Install (one per device)
 Windows   : Settings → VPN → Add → IKEv2 → enter server + credentials
 Android   : Install strongSwan app → add profile with credentials above
 

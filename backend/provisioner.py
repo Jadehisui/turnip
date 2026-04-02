@@ -209,12 +209,14 @@ def generate_mobileconfig(username: str, password: str, server: str) -> str:
     Generate an Apple .mobileconfig profile with embedded CA cert.
     Returns base64-encoded profile bytes for email attachment.
     """
-    # Load CA cert
+    # Load CA cert — fail loudly rather than generating a silently broken profile
     try:
         ca_b64 = base64.b64encode(Path(CA_CERT_PATH).read_bytes()).decode()
     except FileNotFoundError:
-        log.warning(f"CA cert not found at {CA_CERT_PATH} — profile will lack cert trust")
-        ca_b64 = ""
+        raise RuntimeError(
+            f"CA certificate not found at {CA_CERT_PATH}. "
+            "Set CA_CERT_PATH in .env or copy caCert.pem to the expected location."
+        )
 
     profile_uuid = str(uuid.uuid4()).upper()
     vpn_uuid     = str(uuid.uuid4()).upper()

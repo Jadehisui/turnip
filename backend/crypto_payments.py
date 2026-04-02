@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from database import record_payment, get_subscription
+from database import record_payment, get_subscription, payment_exists
 from provisioner import provision_user, get_plan_for_amount
 from emailer import send_welcome_email
 
@@ -95,7 +95,7 @@ def handle_successful_payment(email: str, amount_ngn: float, reference: str, ord
     """Provision a VPN account after a confirmed crypto payment."""
     log.info(f"Crypto payment confirmed: {email} | ₦{amount_ngn:.0f} | ref={reference}")
 
-    if get_subscription(reference):
+    if payment_exists(reference):
         log.warning(f"Duplicate crypto webhook ignored: ref={reference}")
         return
 
