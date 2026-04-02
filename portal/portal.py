@@ -271,6 +271,10 @@ def dashboard():
         status=status,
         server=VPN_SERVER_ADDR,
         plans=PLANS,
+        sub_plan_min_amount=next(
+            (p["min_amount"] for p in PLANS if p["name"].lower() == sub.get("plan_name", "").lower()),
+            0,
+        ),
     )
 
 
@@ -1057,12 +1061,6 @@ async function payWithCrypto(amount, planCode) {
 </body></html>"""
 
 
-# ── Main ───────────────────────────────────────────────────────────────────────
-
-if __name__ == "__main__":
-    log.info("Turnip customer portal starting on :8767")
-    app.run(host="0.0.0.0", port=8767, debug=False)
-
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def serve(path):
@@ -1073,3 +1071,10 @@ def serve(path):
         if path.startswith("api/"):
             return jsonify({"error": "Not Found"}), 404
         return render_template("index.html")
+
+
+# ── Main ───────────────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    log.info("Turnip customer portal starting on :8767")
+    app.run(host="0.0.0.0", port=8767, debug=False)

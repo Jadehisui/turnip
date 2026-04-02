@@ -66,11 +66,20 @@ def get_server_for_continent(continent: str) -> dict:
     Returns {"host": ..., "region": ...}.
     Falls back to any active server if the continent has none.
     """
-    from multiserver import get_best_server_for_continent
-    best = get_best_server_for_continent(continent)
-    if best:
-        return {"host": best.host, "region": best.region}
-    # Fallback: first active server regardless of continent
+    try:
+        from multiserver import get_best_server_for_continent
+        best = get_best_server_for_continent(continent)
+        if best:
+            return {"host": best.host, "region": best.region}
+    except ImportError:
+        log.warning("multiserver module not available — using static server fallback")
+    except Exception as exc:
+        log.warning(f"get_best_server_for_continent failed: {exc} — using static fallback")
+    # Fallback: first active server in the requested continent
+    for s in SERVERS:
+        if s.get("active") and s.get("continent", "").lower() == continent.lower():
+            return {"host": s["host"], "region": s["region"]}
+    # Last resort: any active server
     for s in SERVERS:
         if s.get("active"):
             return {"host": s["host"], "region": s["region"]}

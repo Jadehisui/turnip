@@ -23,7 +23,7 @@ SMTP_HOST       = os.environ.get("SMTP_HOST",       "smtp.gmail.com")
 SMTP_PORT       = int(os.environ.get("SMTP_PORT",   "587"))
 SMTP_USER       = os.environ.get("SMTP_USER",       "")
 SMTP_PASS       = os.environ.get("SMTP_PASS",       "")
-FROM_EMAIL      = os.environ.get("FROM_EMAIL",      "noreply@turnip.com")
+FROM_EMAIL      = os.environ.get("FROM_EMAIL",      "noreply@turnipvpn.site")
 FROM_NAME       = os.environ.get("FROM_NAME",       "Turnip VPN")
 SENDGRID_KEY    = os.environ.get("SENDGRID_API_KEY","")
 RESEND_KEY      = os.environ.get("RESEND_API_KEY",  "")
@@ -430,7 +430,7 @@ def _build_html(creds: dict, plan: dict) -> str:
 </head>
 <body>
 <div class="wrap">
-  <div class="logo">Secure<span>Fast</span> VPN</div>
+  <div class="logo">Turnip<span>VPN</span></div>
 
   <div class="hero">
     <div class="plan-badge">{plan_name.upper()} PLAN · ACTIVE</div>
