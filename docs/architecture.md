@@ -40,7 +40,7 @@ flowchart TD
         direction TB
         P1[Login via OTP email] --> P2[OTP stored in SQLite\nshared across workers]
         P2 --> P3[Session created]
-        P3 --> P4[/dashboard — view\ncredentials & devices]
+        P3 --> P4[/dashboard — view\ncredentials and devices]
         P4 --> P5[Download .mobileconfig\nfor any device]
         P4 --> P6[Regenerate password\nupdates ipsec.secrets\n+ DB in sync]
     end
