@@ -18,21 +18,37 @@ from email import encoders
 
 log = logging.getLogger(__name__)
 
-EMAIL_PROVIDER  = os.environ.get("EMAIL_PROVIDER",  "smtp")      # smtp | sendgrid | resend
-SMTP_HOST       = os.environ.get("SMTP_HOST",       "smtp.gmail.com")
-SMTP_PORT       = int(os.environ.get("SMTP_PORT",   "587"))
-SMTP_USER       = os.environ.get("SMTP_USER",       "")
-SMTP_PASS       = os.environ.get("SMTP_PASS",       "")
-FROM_EMAIL      = os.environ.get("FROM_EMAIL",      "noreply@turnipvpn.site")
-FROM_NAME       = os.environ.get("FROM_NAME",       "Turnip VPN")
-SENDGRID_KEY    = os.environ.get("SENDGRID_API_KEY","")
-RESEND_KEY      = os.environ.get("RESEND_API_KEY",  "")
+def _email_settings() -> dict:
+  """Resolve email configuration at send time so live env changes take effect after restart."""
+  return {
+    "provider": os.environ.get("EMAIL_PROVIDER", "smtp").strip().lower(),
+    "smtp_host": os.environ.get("SMTP_HOST", "smtp.gmail.com").strip(),
+    "smtp_port": int(os.environ.get("SMTP_PORT", "587")),
+    "smtp_user": os.environ.get("SMTP_USER", "").strip(),
+    "smtp_pass": os.environ.get("SMTP_PASS", ""),
+    "from_email": os.environ.get("FROM_EMAIL", "noreply@turnipvpn.site").strip(),
+    "from_name": os.environ.get("FROM_NAME", "Turnip VPN").strip(),
+    "sendgrid_key": os.environ.get("SENDGRID_API_KEY", "").strip(),
+    "resend_key": os.environ.get("RESEND_API_KEY", "").strip(),
+  }
+
+
+def _validate_settings(settings: dict):
+  provider = settings["provider"]
+  if provider == "resend" and not settings["resend_key"]:
+    raise RuntimeError("EMAIL_PROVIDER=resend but RESEND_API_KEY is missing")
+  if provider == "sendgrid" and not settings["sendgrid_key"]:
+    raise RuntimeError("EMAIL_PROVIDER=sendgrid but SENDGRID_API_KEY is missing")
+  if provider == "smtp" and (not settings["smtp_user"] or not settings["smtp_pass"]):
+    raise RuntimeError("EMAIL_PROVIDER=smtp but SMTP_USER/SMTP_PASS is missing")
 
 
 # ── Public entrypoint ─────────────────────────────────────────────────────────
 
 def send_welcome_email(to_email: str, creds: dict, plan: dict):
     """Send welcome email with credentials and .mobileconfig attachments for all devices."""
+  settings = _email_settings()
+  _validate_settings(settings)
     subject = "Your Turnip VPN is ready — connect in 60 seconds"
     html    = _build_html(creds, plan)
     text    = _build_text(creds, plan)
@@ -48,18 +64,22 @@ def send_welcome_email(to_email: str, creds: dict, plan: dict):
     # Primary attachment (Device 1) for single-attachment APIs; extras appended below
     primary_bytes, primary_name = attachments[0] if attachments else (b"", "turnip.mobileconfig")
 
-    if EMAIL_PROVIDER == "sendgrid":
-        _send_sendgrid(to_email, subject, html, text, primary_bytes, primary_name)
-    elif EMAIL_PROVIDER == "resend":
-        _send_resend_multi(to_email, subject, html, text, attachments)
+    log.info(f"Sending welcome email via {settings['provider']} to {to_email} from {settings['from_email']}")
+
+    if settings["provider"] == "sendgrid":
+      _send_sendgrid(settings, to_email, subject, html, text, primary_bytes, primary_name)
+    elif settings["provider"] == "resend":
+      _send_resend_multi(settings, to_email, subject, html, text, attachments)
     else:
-        _send_smtp_multi(to_email, subject, html, text, attachments)
+      _send_smtp_multi(settings, to_email, subject, html, text, attachments)
 
     log.info(f"Email delivered to {to_email} ({len(attachments)} profile(s) attached)")
 
 
 def send_user_welcome_email(user_name: str, user_email: str):
     """Send a welcome email to the newly registered user directing them to pick a plan."""
+  settings = _email_settings()
+  _validate_settings(settings)
     site_url = os.environ.get("SITE_URL", "https://turnipvpn.site")
     subject  = "Welcome to Turnip VPN — pick your plan to get started"
     text = (
@@ -115,12 +135,13 @@ def send_user_welcome_email(user_name: str, user_email: str):
   </table>
 </body></html>"""
     try:
-        if EMAIL_PROVIDER == "sendgrid":
-            _send_simple_sendgrid(user_email, subject, html, text)
-        elif EMAIL_PROVIDER == "resend":
-            _send_simple_resend(user_email, subject, html, text)
+      log.info(f"Sending user welcome email via {settings['provider']} to {user_email} from {settings['from_email']}")
+      if settings["provider"] == "sendgrid":
+        _send_simple_sendgrid(settings, user_email, subject, html, text)
+      elif settings["provider"] == "resend":
+        _send_simple_resend(settings, user_email, subject, html, text)
         else:
-            _send_simple_smtp(user_email, subject, html, text)
+        _send_simple_smtp(settings, user_email, subject, html, text)
         log.info(f"Welcome email sent to {user_email}")
     except Exception as e:
         log.error(f"Failed to send welcome email to {user_email}: {e}")
@@ -128,6 +149,8 @@ def send_user_welcome_email(user_name: str, user_email: str):
 
 def send_registration_notification(user_name: str, user_email: str):
     """Send a plain admin notification to dev@turnipvpn.site when a new user registers."""
+  settings = _email_settings()
+  _validate_settings(settings)
     admin_to = os.environ.get("ADMIN_NOTIFY_EMAIL", "dev@turnipvpn.site")
     subject  = f"New registration: {user_name} <{user_email}>"
     text     = (
@@ -147,12 +170,13 @@ def send_registration_notification(user_name: str, user_email: str):
 </body></html>"""
 
     try:
-        if EMAIL_PROVIDER == "sendgrid":
-            _send_simple_sendgrid(admin_to, subject, html, text)
-        elif EMAIL_PROVIDER == "resend":
-            _send_simple_resend(admin_to, subject, html, text)
+      log.info(f"Sending admin notification via {settings['provider']} to {admin_to} from {settings['from_email']}")
+      if settings["provider"] == "sendgrid":
+        _send_simple_sendgrid(settings, admin_to, subject, html, text)
+      elif settings["provider"] == "resend":
+        _send_simple_resend(settings, admin_to, subject, html, text)
         else:
-            _send_simple_smtp(admin_to, subject, html, text)
+        _send_simple_smtp(settings, admin_to, subject, html, text)
         log.info(f"Admin registration notification sent for {user_email}")
     except Exception as e:
         log.error(f"Failed to send admin notification: {e}")
@@ -160,6 +184,8 @@ def send_registration_notification(user_name: str, user_email: str):
 
 def send_otp_email(to_email: str, code: str):
     """Send a one-time 6-digit login code email."""
+  settings = _email_settings()
+  _validate_settings(settings)
     subject = f"{code} — Your Turnip VPN login code"
     text = (
         f"Your one-time login code is: {code}\n\n"
@@ -191,24 +217,25 @@ def send_otp_email(to_email: str, code: str):
     </td></tr>
   </table>
 </body></html>"""
-    if EMAIL_PROVIDER == "sendgrid":
-        _send_simple_sendgrid(to_email, subject, html, text)
-    elif EMAIL_PROVIDER == "resend":
-        _send_simple_resend(to_email, subject, html, text)
+    log.info(f"Sending OTP email via {settings['provider']} to {to_email} from {settings['from_email']}")
+    if settings["provider"] == "sendgrid":
+      _send_simple_sendgrid(settings, to_email, subject, html, text)
+    elif settings["provider"] == "resend":
+      _send_simple_resend(settings, to_email, subject, html, text)
     else:
-        _send_simple_smtp(to_email, subject, html, text)
+      _send_simple_smtp(settings, to_email, subject, html, text)
     log.info(f"OTP email sent to {to_email}")
 
 
-def _send_simple_resend(to: str, subject: str, html: str, text: str):
+  def _send_simple_resend(settings: dict, to: str, subject: str, html: str, text: str):
     try:
         import resend
     except ImportError:
         log.error("resend package not installed. Run: pip install resend")
         raise
-    resend.api_key = RESEND_KEY
+    resend.api_key = settings["resend_key"]
     resend.Emails.send({
-        "from": f"{FROM_NAME} <{FROM_EMAIL}>",
+      "from": f"{settings['from_name']} <{settings['from_email']}>",
         "to": [to],
         "subject": subject,
         "html": html,
@@ -216,34 +243,34 @@ def _send_simple_resend(to: str, subject: str, html: str, text: str):
     })
 
 
-def _send_simple_smtp(to: str, subject: str, html: str, text: str):
+  def _send_simple_smtp(settings: dict, to: str, subject: str, html: str, text: str):
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
-    msg["From"]    = f"{FROM_NAME} <{FROM_EMAIL}>"
+    msg["From"]    = f"{settings['from_name']} <{settings['from_email']}>"
     msg["To"]      = to
     msg.attach(MIMEText(text, "plain"))
     msg.attach(MIMEText(html, "html"))
-    if SMTP_PORT == 465:
-        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as s:
-            s.login(SMTP_USER, SMTP_PASS)
-            s.sendmail(FROM_EMAIL, to, msg.as_string())
+    if settings["smtp_port"] == 465:
+      with smtplib.SMTP_SSL(settings["smtp_host"], settings["smtp_port"]) as s:
+        s.login(settings["smtp_user"], settings["smtp_pass"])
+        s.sendmail(settings["from_email"], to, msg.as_string())
     else:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+      with smtplib.SMTP(settings["smtp_host"], settings["smtp_port"]) as s:
             s.starttls()
-            s.login(SMTP_USER, SMTP_PASS)
-            s.sendmail(FROM_EMAIL, to, msg.as_string())
+        s.login(settings["smtp_user"], settings["smtp_pass"])
+        s.sendmail(settings["from_email"], to, msg.as_string())
 
 
-def _send_simple_sendgrid(to: str, subject: str, html: str, text: str):
+  def _send_simple_sendgrid(settings: dict, to: str, subject: str, html: str, text: str):
     try:
         import sendgrid
         from sendgrid.helpers.mail import Mail, To, From
     except ImportError:
         log.error("sendgrid package not installed")
         raise
-    sg = sendgrid.SendGridAPIClient(api_key=SENDGRID_KEY)
+    sg = sendgrid.SendGridAPIClient(api_key=settings["sendgrid_key"])
     message = Mail(
-        from_email=From(FROM_EMAIL, FROM_NAME),
+      from_email=From(settings["from_email"], settings["from_name"]),
         to_emails=To(to),
         subject=subject,
         plain_text_content=text,
@@ -254,12 +281,12 @@ def _send_simple_sendgrid(to: str, subject: str, html: str, text: str):
 
 # ── SMTP sender ───────────────────────────────────────────────────────────────
 
-def _send_smtp_multi(to: str, subject: str, html: str, text: str,
+def _send_smtp_multi(settings: dict, to: str, subject: str, html: str, text: str,
                      attachments: list):
     """Send email with one or more .mobileconfig attachments via SMTP."""
     msg = MIMEMultipart("mixed")
     msg["Subject"] = subject
-    msg["From"]    = f"{FROM_NAME} <{FROM_EMAIL}>"
+    msg["From"]    = f"{settings['from_name']} <{settings['from_email']}>"
     msg["To"]      = to
 
     body = MIMEMultipart("alternative")
@@ -274,25 +301,25 @@ def _send_smtp_multi(to: str, subject: str, html: str, text: str,
         part.add_header("Content-Disposition", f'attachment; filename="{att_name}"')
         msg.attach(part)
 
-    if SMTP_PORT == 465:
-        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
-            server.login(SMTP_USER, SMTP_PASS)
-            server.sendmail(FROM_EMAIL, to, msg.as_string())
+    if settings["smtp_port"] == 465:
+      with smtplib.SMTP_SSL(settings["smtp_host"], settings["smtp_port"]) as server:
+        server.login(settings["smtp_user"], settings["smtp_pass"])
+        server.sendmail(settings["from_email"], to, msg.as_string())
     else:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+      with smtplib.SMTP(settings["smtp_host"], settings["smtp_port"]) as server:
             server.starttls()
-            server.login(SMTP_USER, SMTP_PASS)
-            server.sendmail(FROM_EMAIL, to, msg.as_string())
+        server.login(settings["smtp_user"], settings["smtp_pass"])
+        server.sendmail(settings["from_email"], to, msg.as_string())
 
 
-def _send_smtp(to: str, subject: str, html: str, text: str,
+  def _send_smtp(settings: dict, to: str, subject: str, html: str, text: str,
                attachment: bytes, filename: str):
-    _send_smtp_multi(to, subject, html, text, [(attachment, filename)])
+    _send_smtp_multi(settings, to, subject, html, text, [(attachment, filename)])
 
 
 # ── SendGrid sender ───────────────────────────────────────────────────────────
 
-def _send_sendgrid(to: str, subject: str, html: str, text: str,
+def _send_sendgrid(settings: dict, to: str, subject: str, html: str, text: str,
                    attachment: bytes, filename: str):
     try:
         import sendgrid
@@ -304,10 +331,10 @@ def _send_sendgrid(to: str, subject: str, html: str, text: str,
         log.error("sendgrid package not installed. Run: pip install sendgrid")
         raise
 
-    sg = sendgrid.SendGridAPIClient(api_key=SENDGRID_KEY)
+    sg = sendgrid.SendGridAPIClient(api_key=settings["sendgrid_key"])
 
     message = Mail(
-        from_email=From(FROM_EMAIL, FROM_NAME),
+      from_email=From(settings["from_email"], settings["from_name"]),
         to_emails=To(to),
         subject=subject,
         plain_text_content=text,
@@ -326,7 +353,7 @@ def _send_sendgrid(to: str, subject: str, html: str, text: str,
 
 # ── Resend sender ─────────────────────────────────────────────────────────────
 
-def _send_resend_multi(to: str, subject: str, html: str, text: str,
+def _send_resend_multi(settings: dict, to: str, subject: str, html: str, text: str,
                        attachments: list):
     """Send email with one or more .mobileconfig attachments via Resend."""
     try:
@@ -334,9 +361,9 @@ def _send_resend_multi(to: str, subject: str, html: str, text: str,
     except ImportError:
         log.error("resend package not installed. Run: pip install resend")
         raise
-    resend.api_key = RESEND_KEY
+    resend.api_key = settings["resend_key"]
     resend.Emails.send({
-        "from": f"{FROM_NAME} <{FROM_EMAIL}>",
+      "from": f"{settings['from_name']} <{settings['from_email']}>",
         "to": [to],
         "subject": subject,
         "html": html,
@@ -348,9 +375,9 @@ def _send_resend_multi(to: str, subject: str, html: str, text: str,
     })
 
 
-def _send_resend(to: str, subject: str, html: str, text: str,
+def _send_resend(settings: dict, to: str, subject: str, html: str, text: str,
                  attachment: bytes, filename: str):
-    _send_resend_multi(to, subject, html, text, [(attachment, filename)])
+    _send_resend_multi(settings, to, subject, html, text, [(attachment, filename)])
 
 
 # ── Email templates ───────────────────────────────────────────────────────────
