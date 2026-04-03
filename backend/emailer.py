@@ -302,18 +302,18 @@ def _send_smtp_multi(settings: dict, to: str, subject: str, html: str, text: str
         msg.attach(part)
 
     if settings["smtp_port"] == 465:
-      with smtplib.SMTP_SSL(settings["smtp_host"], settings["smtp_port"]) as server:
-        server.login(settings["smtp_user"], settings["smtp_pass"])
-        server.sendmail(settings["from_email"], to, msg.as_string())
+        with smtplib.SMTP_SSL(settings["smtp_host"], settings["smtp_port"]) as server:
+            server.login(settings["smtp_user"], settings["smtp_pass"])
+            server.sendmail(settings["from_email"], to, msg.as_string())
     else:
-      with smtplib.SMTP(settings["smtp_host"], settings["smtp_port"]) as server:
-        server.starttls()
-        server.login(settings["smtp_user"], settings["smtp_pass"])
-        server.sendmail(settings["from_email"], to, msg.as_string())
+        with smtplib.SMTP(settings["smtp_host"], settings["smtp_port"]) as server:
+            server.starttls()
+            server.login(settings["smtp_user"], settings["smtp_pass"])
+            server.sendmail(settings["from_email"], to, msg.as_string())
 
 
-  def _send_smtp(settings: dict, to: str, subject: str, html: str, text: str,
-           attachment: bytes, filename: str):
+def _send_smtp(settings: dict, to: str, subject: str, html: str, text: str,
+               attachment: bytes, filename: str):
     _send_smtp_multi(settings, to, subject, html, text, [(attachment, filename)])
 
 
