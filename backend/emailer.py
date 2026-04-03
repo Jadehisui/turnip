@@ -47,8 +47,8 @@ def _validate_settings(settings: dict):
 
 def send_welcome_email(to_email: str, creds: dict, plan: dict):
     """Send welcome email with credentials and .mobileconfig attachments for all devices."""
-  settings = _email_settings()
-  _validate_settings(settings)
+    settings = _email_settings()
+    _validate_settings(settings)
     subject = "Your Turnip VPN is ready — connect in 60 seconds"
     html    = _build_html(creds, plan)
     text    = _build_text(creds, plan)
@@ -67,19 +67,19 @@ def send_welcome_email(to_email: str, creds: dict, plan: dict):
     log.info(f"Sending welcome email via {settings['provider']} to {to_email} from {settings['from_email']}")
 
     if settings["provider"] == "sendgrid":
-      _send_sendgrid(settings, to_email, subject, html, text, primary_bytes, primary_name)
+        _send_sendgrid(settings, to_email, subject, html, text, primary_bytes, primary_name)
     elif settings["provider"] == "resend":
-      _send_resend_multi(settings, to_email, subject, html, text, attachments)
+        _send_resend_multi(settings, to_email, subject, html, text, attachments)
     else:
-      _send_smtp_multi(settings, to_email, subject, html, text, attachments)
+        _send_smtp_multi(settings, to_email, subject, html, text, attachments)
 
     log.info(f"Email delivered to {to_email} ({len(attachments)} profile(s) attached)")
 
 
 def send_user_welcome_email(user_name: str, user_email: str):
     """Send a welcome email to the newly registered user directing them to pick a plan."""
-  settings = _email_settings()
-  _validate_settings(settings)
+    settings = _email_settings()
+    _validate_settings(settings)
     site_url = os.environ.get("SITE_URL", "https://turnipvpn.site")
     subject  = "Welcome to Turnip VPN — pick your plan to get started"
     text = (
@@ -135,13 +135,13 @@ def send_user_welcome_email(user_name: str, user_email: str):
   </table>
 </body></html>"""
     try:
-      log.info(f"Sending user welcome email via {settings['provider']} to {user_email} from {settings['from_email']}")
-      if settings["provider"] == "sendgrid":
-        _send_simple_sendgrid(settings, user_email, subject, html, text)
-      elif settings["provider"] == "resend":
-        _send_simple_resend(settings, user_email, subject, html, text)
+        log.info(f"Sending user welcome email via {settings['provider']} to {user_email} from {settings['from_email']}")
+        if settings["provider"] == "sendgrid":
+            _send_simple_sendgrid(settings, user_email, subject, html, text)
+        elif settings["provider"] == "resend":
+            _send_simple_resend(settings, user_email, subject, html, text)
         else:
-        _send_simple_smtp(settings, user_email, subject, html, text)
+            _send_simple_smtp(settings, user_email, subject, html, text)
         log.info(f"Welcome email sent to {user_email}")
     except Exception as e:
         log.error(f"Failed to send welcome email to {user_email}: {e}")
@@ -149,8 +149,8 @@ def send_user_welcome_email(user_name: str, user_email: str):
 
 def send_registration_notification(user_name: str, user_email: str):
     """Send a plain admin notification to dev@turnipvpn.site when a new user registers."""
-  settings = _email_settings()
-  _validate_settings(settings)
+    settings = _email_settings()
+    _validate_settings(settings)
     admin_to = os.environ.get("ADMIN_NOTIFY_EMAIL", "dev@turnipvpn.site")
     subject  = f"New registration: {user_name} <{user_email}>"
     text     = (
@@ -170,13 +170,13 @@ def send_registration_notification(user_name: str, user_email: str):
 </body></html>"""
 
     try:
-      log.info(f"Sending admin notification via {settings['provider']} to {admin_to} from {settings['from_email']}")
-      if settings["provider"] == "sendgrid":
-        _send_simple_sendgrid(settings, admin_to, subject, html, text)
-      elif settings["provider"] == "resend":
-        _send_simple_resend(settings, admin_to, subject, html, text)
+        log.info(f"Sending admin notification via {settings['provider']} to {admin_to} from {settings['from_email']}")
+        if settings["provider"] == "sendgrid":
+            _send_simple_sendgrid(settings, admin_to, subject, html, text)
+        elif settings["provider"] == "resend":
+            _send_simple_resend(settings, admin_to, subject, html, text)
         else:
-        _send_simple_smtp(settings, admin_to, subject, html, text)
+            _send_simple_smtp(settings, admin_to, subject, html, text)
         log.info(f"Admin registration notification sent for {user_email}")
     except Exception as e:
         log.error(f"Failed to send admin notification: {e}")
@@ -184,8 +184,8 @@ def send_registration_notification(user_name: str, user_email: str):
 
 def send_otp_email(to_email: str, code: str):
     """Send a one-time 6-digit login code email."""
-  settings = _email_settings()
-  _validate_settings(settings)
+    settings = _email_settings()
+    _validate_settings(settings)
     subject = f"{code} — Your Turnip VPN login code"
     text = (
         f"Your one-time login code is: {code}\n\n"
@@ -219,15 +219,15 @@ def send_otp_email(to_email: str, code: str):
 </body></html>"""
     log.info(f"Sending OTP email via {settings['provider']} to {to_email} from {settings['from_email']}")
     if settings["provider"] == "sendgrid":
-      _send_simple_sendgrid(settings, to_email, subject, html, text)
+        _send_simple_sendgrid(settings, to_email, subject, html, text)
     elif settings["provider"] == "resend":
-      _send_simple_resend(settings, to_email, subject, html, text)
+        _send_simple_resend(settings, to_email, subject, html, text)
     else:
-      _send_simple_smtp(settings, to_email, subject, html, text)
+        _send_simple_smtp(settings, to_email, subject, html, text)
     log.info(f"OTP email sent to {to_email}")
 
 
-  def _send_simple_resend(settings: dict, to: str, subject: str, html: str, text: str):
+def _send_simple_resend(settings: dict, to: str, subject: str, html: str, text: str):
     try:
         import resend
     except ImportError:
@@ -235,7 +235,7 @@ def send_otp_email(to_email: str, code: str):
         raise
     resend.api_key = settings["resend_key"]
     resend.Emails.send({
-      "from": f"{settings['from_name']} <{settings['from_email']}>",
+        "from": f"{settings['from_name']} <{settings['from_email']}>",
         "to": [to],
         "subject": subject,
         "html": html,
@@ -243,7 +243,7 @@ def send_otp_email(to_email: str, code: str):
     })
 
 
-  def _send_simple_smtp(settings: dict, to: str, subject: str, html: str, text: str):
+def _send_simple_smtp(settings: dict, to: str, subject: str, html: str, text: str):
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"]    = f"{settings['from_name']} <{settings['from_email']}>"
@@ -251,17 +251,17 @@ def send_otp_email(to_email: str, code: str):
     msg.attach(MIMEText(text, "plain"))
     msg.attach(MIMEText(html, "html"))
     if settings["smtp_port"] == 465:
-      with smtplib.SMTP_SSL(settings["smtp_host"], settings["smtp_port"]) as s:
-        s.login(settings["smtp_user"], settings["smtp_pass"])
-        s.sendmail(settings["from_email"], to, msg.as_string())
+        with smtplib.SMTP_SSL(settings["smtp_host"], settings["smtp_port"]) as s:
+            s.login(settings["smtp_user"], settings["smtp_pass"])
+            s.sendmail(settings["from_email"], to, msg.as_string())
     else:
-      with smtplib.SMTP(settings["smtp_host"], settings["smtp_port"]) as s:
+        with smtplib.SMTP(settings["smtp_host"], settings["smtp_port"]) as s:
             s.starttls()
-        s.login(settings["smtp_user"], settings["smtp_pass"])
-        s.sendmail(settings["from_email"], to, msg.as_string())
+            s.login(settings["smtp_user"], settings["smtp_pass"])
+            s.sendmail(settings["from_email"], to, msg.as_string())
 
 
-  def _send_simple_sendgrid(settings: dict, to: str, subject: str, html: str, text: str):
+def _send_simple_sendgrid(settings: dict, to: str, subject: str, html: str, text: str):
     try:
         import sendgrid
         from sendgrid.helpers.mail import Mail, To, From
@@ -270,7 +270,7 @@ def send_otp_email(to_email: str, code: str):
         raise
     sg = sendgrid.SendGridAPIClient(api_key=settings["sendgrid_key"])
     message = Mail(
-      from_email=From(settings["from_email"], settings["from_name"]),
+        from_email=From(settings["from_email"], settings["from_name"]),
         to_emails=To(to),
         subject=subject,
         plain_text_content=text,
@@ -313,7 +313,7 @@ def _send_smtp_multi(settings: dict, to: str, subject: str, html: str, text: str
 
 
   def _send_smtp(settings: dict, to: str, subject: str, html: str, text: str,
-               attachment: bytes, filename: str):
+           attachment: bytes, filename: str):
     _send_smtp_multi(settings, to, subject, html, text, [(attachment, filename)])
 
 
