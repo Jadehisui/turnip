@@ -198,6 +198,13 @@ const Admin = () => {
         return Array.from({ length: 18 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
     };
 
+    const fmtBytes = (gb) => {
+        if (!gb || gb === 0) return '0 MB';
+        if (gb < 0.001) return `${(gb * 1024 * 1024).toFixed(0)} KB`;
+        if (gb < 1) return `${(gb * 1024).toFixed(1)} MB`;
+        return `${gb.toFixed(2)} GB`;
+    };
+
     useEffect(() => {
         if (token && isLoggedIn) {
             startPolling();
@@ -334,6 +341,7 @@ const Admin = () => {
                         <div className="capacity-stats">
                             <span>{status ? status.max_users - status.total_users : '0'} slots available</span>
                             <span>{capacityPct}% target load</span>
+                            <span className="srv-count">{status?.servers_active ?? 1}/{status?.servers_total ?? 1} server{(status?.servers_total ?? 1) > 1 ? 's' : ''} active</span>
                         </div>
                     </div>
                     <div className="capacity-value">
@@ -362,10 +370,10 @@ const Admin = () => {
                     <div className="metric-box">
                         <div className="metric-tag">Bandwidth</div>
                         <div className="metric-val-small">
-                            <span className="tx">↑{sys.net_tx_gb || '0'}GB</span>
-                            <span className="rx">↓{sys.net_rx_gb || '0'}GB</span>
+                            <span className="tx">↑{sys.net_tx_rate_mbps > 0 ? `${sys.net_tx_rate_mbps} Mbps` : fmtBytes(sys.net_tx_gb)}</span>
+                            <span className="rx">↓{sys.net_rx_rate_mbps > 0 ? `${sys.net_rx_rate_mbps} Mbps` : fmtBytes(sys.net_rx_gb)}</span>
                         </div>
-                        <div className="metric-sub">Total I/O</div>
+                        <div className="metric-sub">Total ↑{fmtBytes(sys.net_tx_gb)} ↓{fmtBytes(sys.net_rx_gb)}</div>
                     </div>
                 </div>
 
@@ -528,7 +536,7 @@ const Admin = () => {
                         <div className="card resources-card">
                             <div className="card-header">
                                 <h3>System</h3>
-                                <div className="uptime">up {status ? `${Math.floor(sys.uptime_sec / 3600)}h` : '--'}</div>
+                                <div className="uptime">up {status ? `${Math.floor(sys.uptime_sec / 3600)}h ${Math.floor((sys.uptime_sec % 3600) / 60)}m` : '--'}</div>
                             </div>
                             <div className="resource-bars">
                                 {[
@@ -541,6 +549,34 @@ const Admin = () => {
                                         <div className="res-bg"><motion.div className="res-fill" initial={{ width: 0 }} animate={{ width: `${r.val || 0}%` }} style={{ background: r.color }} /></div>
                                     </div>
                                 ))}
+                            </div>
+                        </div>
+
+                        {/* Firewall */}
+                        <div className="card firewall-card">
+                            <div className="card-header">
+                                <h3>Firewall</h3>
+                                <div className={`badge ${status?.firewall?.enabled ? '' : 'badge-err'}`}>
+                                    {status?.firewall?.enabled ? 'Active' : 'Disabled'}
+                                </div>
+                            </div>
+                            <div className="fw-rows">
+                                <div className="fw-row">
+                                    <span className="fw-label">UFW</span>
+                                    <span className={status?.firewall?.enabled ? 'fw-ok' : 'fw-err'}>
+                                        {status?.firewall?.enabled ? '● Active' : '○ Inactive'}
+                                    </span>
+                                </div>
+                                <div className="fw-row">
+                                    <span className="fw-label">Rules</span>
+                                    <span className="fw-val">{status?.firewall?.rules ?? 0} configured</span>
+                                </div>
+                                <div className="fw-row">
+                                    <span className="fw-label">VPN NAT</span>
+                                    <span className={status?.firewall?.vpn_nat ? 'fw-ok' : 'fw-err'}>
+                                        {status?.firewall?.vpn_nat ? '● Masquerade OK' : '○ Not found'}
+                                    </span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -584,7 +620,16 @@ const Admin = () => {
         .metric-tag { font-family: var(--mono); font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: .1em; margin-bottom: 1rem; }
         .progress-bg { height: 6px; background: var(--bg3); border-radius: 100px; overflow: hidden; margin-bottom: 0.75rem; }
         .progress-fill { height: 100%; border-radius: 100px; }
-        .capacity-stats { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 11px; color: var(--text2); }
+        .capacity-stats { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 11px; color: var(--text2); flex-wrap: wrap; gap: 0.25rem; }
+        .srv-count { color: var(--accent); font-weight: 700; }
+        .badge-err { background: rgba(239,68,68,.15); color: var(--red); }
+        .firewall-card { }
+        .fw-rows { display: flex; flex-direction: column; gap: 0.6rem; margin-top: 0.5rem; }
+        .fw-row { display: flex; justify-content: space-between; align-items: center; font-size: 12px; }
+        .fw-label { font-family: var(--mono); color: var(--text3); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+        .fw-val { font-family: var(--mono); color: var(--text2); font-size: 12px; }
+        .fw-ok { color: var(--accent); font-family: var(--mono); font-size: 12px; }
+        .fw-err { color: var(--red); font-family: var(--mono); font-size: 12px; }
         .capacity-value { text-align: right; }
         .capacity-value .val { font-size: 42px; font-weight: 800; font-family: var(--mono); line-height: 1; }
         .capacity-value .val span { font-size: 18px; color: var(--text3); font-weight: 400; }

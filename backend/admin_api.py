@@ -56,13 +56,28 @@ def _require_auth():
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+_net_prev: dict = {}  # for live bandwidth rate calculation
+
+
 def _collect_local_stats() -> dict:
     """Collect server status for the local machine using psutil."""
+    global _net_prev
+
     cpu_pct    = psutil.cpu_percent(interval=0.3)
     mem        = psutil.virtual_memory()
     disk       = psutil.disk_usage("/")
     net_io     = psutil.net_io_counters()
     uptime_sec = int(time.time() - psutil.boot_time())
+
+    # Live bandwidth rate (Mbps)
+    now = time.time()
+    rx_rate_mbps = tx_rate_mbps = 0.0
+    if _net_prev:
+        dt = now - _net_prev["ts"]
+        if dt > 0.5:
+            rx_rate_mbps = round((net_io.bytes_recv - _net_prev["rx"]) / dt / 1e6, 2)
+            tx_rate_mbps = round((net_io.bytes_sent - _net_prev["tx"]) / dt / 1e6, 2)
+    _net_prev = {"ts": now, "rx": net_io.bytes_recv, "tx": net_io.bytes_sent}
 
     # VPN users from ipsec.secrets
     try:
@@ -90,21 +105,54 @@ def _collect_local_stats() -> dict:
     except Exception:
         tunnels = []
 
+    # Firewall status
+    firewall = {"enabled": False, "rules": 0, "vpn_nat": False}
+    try:
+        ufw_out = subprocess.run(
+            ["ufw", "status", "numbered"], capture_output=True, text=True, timeout=5
+        ).stdout
+        firewall["enabled"] = "Status: active" in ufw_out
+        if firewall["enabled"]:
+            firewall["rules"] = len(re.findall(r"^\s*\[\s*\d+\]", ufw_out, re.MULTILINE))
+    except Exception:
+        pass
+    try:
+        ipt_out = subprocess.run(
+            ["iptables", "-t", "nat", "-L", "POSTROUTING", "-n"],
+            capture_output=True, text=True, timeout=5
+        ).stdout
+        firewall["vpn_nat"] = "MASQUERADE" in ipt_out
+    except Exception:
+        pass
+
+    # Server registry counts
+    try:
+        all_srvs = load_servers()
+        servers_total  = len(all_srvs)
+        servers_active = sum(1 for s in all_srvs if s.active)
+    except Exception:
+        servers_total = servers_active = 1
+
     return {
         "vpn_running":    vpn_running,
         "total_users":    total_users,
         "max_users":      MAX_PER_SERVER,
         "active_tunnels": len(tunnels),
         "tunnels":        tunnels,
+        "servers_total":  servers_total,
+        "servers_active": servers_active,
+        "firewall":       firewall,
         "system": {
-            "cpu_pct":      round(cpu_pct, 1),
-            "mem_pct":      mem.percent,
-            "mem_used_gb":  round(mem.used  / 1e9, 2),
-            "mem_total_gb": round(mem.total / 1e9, 2),
-            "net_rx_gb":    round(net_io.bytes_recv / 1e9, 3),
-            "net_tx_gb":    round(net_io.bytes_sent / 1e9, 3),
-            "disk_pct":     round(disk.percent, 1),
-            "uptime_sec":   uptime_sec,
+            "cpu_pct":          round(cpu_pct, 1),
+            "mem_pct":          mem.percent,
+            "mem_used_gb":      round(mem.used  / 1e9, 2),
+            "mem_total_gb":     round(mem.total / 1e9, 2),
+            "net_rx_gb":        round(net_io.bytes_recv / 1e9, 3),
+            "net_tx_gb":        round(net_io.bytes_sent / 1e9, 3),
+            "net_rx_rate_mbps": rx_rate_mbps,
+            "net_tx_rate_mbps": tx_rate_mbps,
+            "disk_pct":         round(disk.percent, 1),
+            "uptime_sec":       uptime_sec,
         },
     }
 
