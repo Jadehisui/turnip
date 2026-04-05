@@ -35,10 +35,15 @@ class VPNServer:
     name:      str
     country:   str
     flag:      str
-    host:      str          # IP or hostname
+    host:      str          # IP or hostname (used for management/SSH)
     region:    str          # nl | us | ca | sg | de | uk | jp | in
     continent: str = ""    # eu | na | as
     active:    bool = True
+    public_host: str = ""  # Public IP for VPN clients; defaults to host
+
+    def __post_init__(self):
+        if not self.public_host:
+            self.public_host = self.host
 
     def to_dict(self):
         return asdict(self)
@@ -383,7 +388,7 @@ def provision_user_multiserver(email: str, plan: dict) -> dict:
     return {
         "username":       username,
         "password":       password,
-        "server":         primary.host if primary else "",
+        "server":         primary.public_host if primary else "",
         "server_name":    primary.name if primary else "",
         "server_region":  primary.region if primary else "",
         "all_servers":    [s.to_dict() for s in assigned_servers],

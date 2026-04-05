@@ -3,8 +3,8 @@ import { Shield, Activity, Users, Globe, Cpu, Tablet, Server, Trash2, RotateCcw,
 import { motion, AnimatePresence } from 'framer-motion';
 
 const Admin = () => {
-    const [isLoggedIn, setIsLoggedIn] = useState(false);
-    const [token, setToken] = useState('');
+    const [isLoggedIn, setIsLoggedIn] = useState(() => !!sessionStorage.getItem('admin_token'));
+    const [token, setToken] = useState(() => sessionStorage.getItem('admin_token') || '');
     const [apiUrl, setApiUrl] = useState(() => {
         const { hostname, protocol } = window.location;
         if (hostname === 'localhost' || hostname === '127.0.0.1') {
@@ -97,6 +97,7 @@ const Admin = () => {
         try {
             const res = await apiFetch('/api/status');
             if (res.ok) {
+                sessionStorage.setItem('admin_token', token);
                 setIsLoggedIn(true);
                 setLoginError('');
                 startPolling();
@@ -110,6 +111,7 @@ const Admin = () => {
 
     const handleLogout = () => {
         clearInterval(pollTimer.current);
+        sessionStorage.removeItem('admin_token');
         setIsLoggedIn(false);
         setToken('');
         setStatus(null);
@@ -197,8 +199,11 @@ const Admin = () => {
     };
 
     useEffect(() => {
+        if (token && isLoggedIn) {
+            startPolling();
+        }
         return () => clearInterval(pollTimer.current);
-    }, []);
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const filteredUsers = users.filter((u) => u.username.toLowerCase().includes(searchQuery.toLowerCase()));
 

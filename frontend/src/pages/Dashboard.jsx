@@ -13,8 +13,11 @@ const Dashboard = () => {
         const fetchStatus = async () => {
             try {
                 const res = await fetch('/api/user/status');
+                if (res.status === 401) { window.location.href = '/login'; return; }
                 const data = await res.json();
-                if (data.email) {
+                if (data.status === 'registered') {
+                    window.location.href = '/pricing';
+                } else if (data.email) {
                     setSub(data);
                 } else {
                     window.location.href = '/login';
