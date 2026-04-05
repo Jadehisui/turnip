@@ -5,7 +5,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 const Admin = () => {
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [token, setToken] = useState('');
-    const [apiUrl, setApiUrl] = useState('http://127.0.0.1:8765');
+    const [apiUrl, setApiUrl] = useState(() => {
+        const { hostname, protocol } = window.location;
+        if (hostname === 'localhost' || hostname === '127.0.0.1') {
+            return 'http://127.0.0.1:8765';
+        }
+        return `${protocol}//${hostname}/admin-api`;
+    });
     const [loginError, setLoginError] = useState('');
     const [status, setStatus] = useState(null);
     const [users, setUsers] = useState([]);
