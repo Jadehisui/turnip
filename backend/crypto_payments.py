@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from database import record_payment, get_subscription, payment_exists
+from database import record_payment, get_subscription, payment_exists, ensure_user
 from provisioner import provision_user, get_plan_for_amount
 from emailer import send_welcome_email
 
@@ -106,6 +106,7 @@ def handle_successful_payment(email: str, amount_ngn: float, reference: str, ord
 
     plan  = get_plan_for_amount(amount_ngn, plan_code)
     creds = provision_user(email, plan, region)
+    ensure_user(email)  # guarantee a users row so the customer can log in via OTP
 
     record_payment(
         email=email,

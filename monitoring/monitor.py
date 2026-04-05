@@ -187,48 +187,46 @@ def evaluate_alerts(current: list[dict], state: dict) -> list[dict]:
                 "detail":  f"Server {srv['host']} recovered.",
             })
 
-        if not srv["reachable"]:
-            continue
+        if srv["reachable"]:
+            # VPN daemon down
+            if not srv["vpn_up"] and prev.get("vpn_up", True):
+                alerts.append({
+                    "level":   "critical",
+                    "server":  srv["name"],
+                    "message": f"🔴 StrongSwan DOWN on {srv['name']}",
+                    "detail":  "The VPN daemon is not running. New connections are blocked.",
+                })
 
-        # VPN daemon down
-        if not srv["vpn_up"] and prev.get("vpn_up", True):
-            alerts.append({
-                "level":   "critical",
-                "server":  srv["name"],
-                "message": f"🔴 StrongSwan DOWN on {srv['name']}",
-                "detail":  "The VPN daemon is not running. New connections are blocked.",
-            })
+            # VPN daemon recovered
+            if srv["vpn_up"] and not prev.get("vpn_up", True):
+                alerts.append({
+                    "level":   "info",
+                    "server":  srv["name"],
+                    "message": f"🟢 StrongSwan recovered on {srv['name']}",
+                    "detail":  "VPN daemon is running again.",
+                })
 
-        # VPN daemon recovered
-        if srv["vpn_up"] and not prev.get("vpn_up", True):
-            alerts.append({
-                "level":   "info",
-                "server":  srv["name"],
-                "message": f"🟢 StrongSwan recovered on {srv['name']}",
-                "detail":  "VPN daemon is running again.",
-            })
+            # Capacity warning (only alert once per threshold crossing)
+            cap_pct = srv["users"] / MAX_USERS * 100
+            prev_cap = prev.get("users", 0) / MAX_USERS * 100
+            if cap_pct >= CAP_ALERT_PCT and prev_cap < CAP_ALERT_PCT:
+                alerts.append({
+                    "level":   "warning",
+                    "server":  srv["name"],
+                    "message": f"⚠️ {srv['name']} at {cap_pct:.0f}% capacity",
+                    "detail":  f"{srv['users']}/{MAX_USERS} users. Consider adding a server.",
+                })
 
-        # Capacity warning (only alert once per threshold crossing)
-        cap_pct = srv["users"] / MAX_USERS * 100
-        prev_cap = prev.get("users", 0) / MAX_USERS * 100
-        if cap_pct >= CAP_ALERT_PCT and prev_cap < CAP_ALERT_PCT:
-            alerts.append({
-                "level":   "warning",
-                "server":  srv["name"],
-                "message": f"⚠️ {srv['name']} at {cap_pct:.0f}% capacity",
-                "detail":  f"{srv['users']}/{MAX_USERS} users. Consider adding a server.",
-            })
+            # CPU warning
+            if srv["cpu"] >= CPU_ALERT_PCT and prev.get("cpu", 0) < CPU_ALERT_PCT:
+                alerts.append({
+                    "level":   "warning",
+                    "server":  srv["name"],
+                    "message": f"⚠️ High CPU on {srv['name']}: {srv['cpu']:.0f}%",
+                    "detail":  f"CPU has been above {CPU_ALERT_PCT:.0f}% threshold.",
+                })
 
-        # CPU warning
-        if srv["cpu"] >= CPU_ALERT_PCT and prev.get("cpu", 0) < CPU_ALERT_PCT:
-            alerts.append({
-                "level":   "warning",
-                "server":  srv["name"],
-                "message": f"⚠️ High CPU on {srv['name']}: {srv['cpu']:.0f}%",
-                "detail":  f"CPU has been above {CPU_ALERT_PCT:.0f}% threshold.",
-            })
-
-        # Update state
+        # Always update state so offline/recovered transitions fire exactly once
         state[sid] = {
             "reachable": srv["reachable"],
             "vpn_up":    srv["vpn_up"],

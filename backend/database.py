@@ -94,6 +94,14 @@ def db_init():
                 expires_at REAL NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS pending_payments (
+                iid        TEXT PRIMARY KEY,
+                email      TEXT NOT NULL,
+                plan_code  TEXT NOT NULL,
+                region     TEXT NOT NULL DEFAULT 'eu',
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
             CREATE INDEX IF NOT EXISTS idx_sub_email     ON subscriptions(email);
             CREATE INDEX IF NOT EXISTS idx_sub_username  ON subscriptions(username);
             CREATE INDEX IF NOT EXISTS idx_dev_email     ON subscription_devices(email);
@@ -105,6 +113,19 @@ def db_init():
             conn.execute("ALTER TABLE subscriptions ADD COLUMN server_region TEXT NOT NULL DEFAULT 'us'")
         except Exception:
             pass  # column already exists
+        # Migrate existing DBs that lack pending_payments table
+        try:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS pending_payments (
+                    iid        TEXT PRIMARY KEY,
+                    email      TEXT NOT NULL,
+                    plan_code  TEXT NOT NULL,
+                    region     TEXT NOT NULL DEFAULT 'eu',
+                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+            """)
+        except Exception:
+            pass
     log.info(f"Database initialised at {DB_PATH}")
 
 
@@ -341,6 +362,22 @@ def get_user(email: str) -> dict | None:
         return dict(row) if row else None
 
 
+def ensure_user(email: str) -> None:
+    """
+    Ensure a users row exists for this email.
+    Called by webhooks after payment so the user can always log in via OTP,
+    even if they never went through the registration form.
+    No-op if the row already exists.
+    """
+    email = email.strip().lower()
+    now   = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO users (name, email, status, created_at) VALUES (?, ?, 'active', ?)",
+            (email, email, now),
+        )
+
+
 def get_all_users() -> list[dict]:
     """Return all registered users joined with subscription info if available."""
     with get_conn() as conn:
@@ -352,3 +389,28 @@ def get_all_users() -> list[dict]:
             ORDER BY u.created_at DESC
         """).fetchall()
         return [dict(r) for r in rows]
+
+
+# ── Pending payments (NOWPayments static-invoice flow) ─────────────────────────
+
+def store_pending_payment(iid: str, email: str, plan_code: str, region: str) -> None:
+    """Record that a user is about to pay a static NOWPayments invoice."""
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO pending_payments (iid, email, plan_code, region) VALUES (?, ?, ?, ?)",
+            (iid, email.strip().lower(), plan_code.lower(), region),
+        )
+
+
+def get_pending_payment(iid: str) -> dict | None:
+    """Look up the email/plan stored for a NOWPayments invoice ID."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM pending_payments WHERE iid = ?", (iid,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def delete_pending_payment(iid: str) -> None:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM pending_payments WHERE iid = ?", (iid,))

@@ -32,7 +32,10 @@ from siwe import SiweMessage
 from eth_account.messages import encode_defunct
 from eth_account import Account
 
-load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+# Try portal-local .env first, then fall back to backend/.env
+_portal_dir = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(_portal_dir, ".env"))
+load_dotenv(os.path.join(_portal_dir, "../backend/.env"), override=False)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -46,15 +49,17 @@ log = logging.getLogger(__name__)
 # Import shared modules from payment backend
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../backend"))
-from database import db_init, get_subscription, get_all_subscriptions, record_payment, get_devices_for_email, register_user, get_user, admin_update_subscription, store_otp, verify_and_consume_otp
+from database import db_init, get_subscription, get_all_subscriptions, record_payment, get_devices_for_email, register_user, get_user, admin_update_subscription, store_otp, verify_and_consume_otp, ensure_user, store_pending_payment, get_pending_payment, delete_pending_payment
 from provisioner import provision_user, deprovision_user, generate_password, generate_mobileconfig, get_plan_for_amount, get_server_host, PLANS, CA_CERT_PATH, SERVERS
 from emailer import send_registration_notification, send_user_welcome_email, send_otp_email, send_welcome_email
 
 app = Flask(__name__, 
             static_folder='frontend/dist', 
             template_folder='frontend/dist')
-app.secret_key      = os.environ.get("PORTAL_SECRET_KEY", secrets.token_hex(32))
-app.permanent_session_lifetime = timedelta(hours=12)
+app.secret_key                  = os.environ.get("PORTAL_SECRET_KEY", secrets.token_hex(32))
+app.permanent_session_lifetime  = timedelta(hours=12)
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_HTTPONLY"] = True
 
 db_init()  # ensure tables exist whether running via gunicorn or directly
 
@@ -78,6 +83,8 @@ def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if "email" not in session:
+            if request.path.startswith("/api/"):
+                return jsonify({"error": "Unauthorized"}), 401
             return redirect(url_for("login_page"))
         return f(*args, **kwargs)
     return decorated
@@ -107,29 +114,35 @@ def days_remaining(expires_at: str) -> int:
 @app.route("/api/user/status")
 @login_required
 def user_status():
-    user = get_current_user()
-    if not user:
+    email = session.get("email", "")
+    sub = get_current_user()
+    if not sub:
+        # Registered but no subscription yet (pre-payment) — still expose email
+        # so the Pricing page can skip the email prompt for logged-in users.
+        registered = get_user(email=email)
+        if registered:
+            return jsonify({"email": email, "status": "registered"})
         return jsonify({"error": "Unauthorized"}), 401
 
-    devices = get_devices_for_email(user["email"])
+    devices = get_devices_for_email(sub["email"])
     if not devices:
         # Backward compat for old single-credential subscriptions
         devices = [{
             "device_number": 1,
-            "username":      user["username"],
-            "password":      user["password"],
-            "server_region": user.get("server_region", "us"),
+            "username":      sub["username"],
+            "password":      sub["password"],
+            "server_region": sub.get("server_region", "us"),
         }]
 
     return jsonify({
-        "email":         user["email"],
-        "username":      user["username"],
-        "status":        user["status"],
-        "plan_name":     user["plan_name"],
-        "expires_at":    user["expires_at"],
-        "wallet_address": user.get("wallet_address"),
-        "server_region": user.get("server_region", "us"),
-        "devices":       devices,
+        "email":          sub["email"],
+        "username":       sub["username"],
+        "status":         sub["status"],
+        "plan_name":      sub["plan_name"],
+        "expires_at":     sub["expires_at"],
+        "wallet_address": sub.get("wallet_address"),
+        "server_region":  sub.get("server_region", "us"),
+        "devices":        devices,
     })
 
 
@@ -382,7 +395,7 @@ def _ls_checkout_url(email: str, plan_code: str, region: str = "eu") -> str:
         "checkout[custom][region]": region,
     }
     if redirect_url:
-        params["checkout[redirect]"] = redirect_url
+        params["checkout[redirect_url]"] = redirect_url
     return f"{base}?{urlencode(params)}"
 
 
@@ -420,30 +433,39 @@ def pay_public_initiate():
         return jsonify({"error": str(e)}), 500
 
 
+# Static NOWPayments invoice URLs per plan (pre-created in NOWPayments dashboard)
+_NP_INVOICE_URLS = {
+    "basic":    os.environ.get("NOWPAYMENTS_BASIC_URL", ""),
+    "pro":      os.environ.get("NOWPAYMENTS_PRO_URL", ""),
+    "business": os.environ.get("NOWPAYMENTS_BUSINESS_URL", ""),
+}
+
+
 @app.route("/api/pay/crypto/initiate", methods=["POST"])
 def crypto_pay_initiate():
-    """Create a NOWPayments hosted crypto invoice."""
-    import sys
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../backend"))
-    from crypto_payments import create_invoice
-
-    data       = request.get_json()
-    email      = data.get("email") or session.get("email", "")
-    amount_ngn = float(data.get("amount_ngn", 4000))
-    plan_code  = data.get("plan_code", "pro")
-    region     = data.get("region", "eu")
+    """Return the pre-created NOWPayments invoice URL for the requested plan.
+    Also stores a pending_payment record so the IPN webhook can resolve the email."""
+    data      = request.get_json() or {}
+    email     = data.get("email") or session.get("email", "")
+    plan_code = data.get("plan_code", "pro").lower()
+    region    = data.get("region", "eu")
 
     if not email or "@" not in email:
         return jsonify({"error": "Valid email is required"}), 400
 
-    site_url = os.environ.get("SITE_URL", request.url_root.rstrip("/"))
+    payment_url = _NP_INVOICE_URLS.get(plan_code, "")
+    if not payment_url:
+        log.error(f"No NOWPayments URL configured for plan '{plan_code}'")
+        return jsonify({"error": f"Crypto payment not available for plan '{plan_code}'."}), 500
 
-    try:
-        invoice = create_invoice(email, amount_ngn, plan_code, site_url, region)
-        return jsonify({"ok": True, "payment_url": invoice.get("invoice_url")})
-    except Exception as e:
-        log.error(f"NOWPayments create error: {e}")
-        return jsonify({"error": "Could not create crypto payment. Check NOWPAYMENTS_API_KEY."}), 500
+    # Extract the invoice ID from the URL (?iid=...) and store pending record
+    from urllib.parse import urlparse, parse_qs
+    iid = parse_qs(urlparse(payment_url).query).get("iid", [None])[0]
+    if iid:
+        store_pending_payment(iid=iid, email=email, plan_code=plan_code, region=region)
+        log.info(f"Pending payment stored: iid={iid} email={email} plan={plan_code}")
+
+    return jsonify({"ok": True, "payment_url": payment_url})
 
 
 @app.route("/api/auth/nonce")
@@ -505,9 +527,9 @@ def pricing():
 
 @app.route("/webhook/nowpayments", methods=["POST"])
 def nowpayments_webhook():
-    """BUG-8 fix: NOWPayments IPN fires at the public site URL (this port).
-    Handle it here so crypto payments actually complete provisioning."""
+    """NOWPayments IPN — verify signature, resolve email, provision account."""
     import json, traceback
+    from urllib.parse import urlparse, parse_qs
     from crypto_payments import verify_nowpayments_signature, handle_successful_payment, NGN_TO_USD_RATE
 
     payload   = request.get_data()
@@ -525,16 +547,30 @@ def nowpayments_webhook():
             log.info(f"NOWPayments status={payment_status} — not yet finished, skipping")
             return jsonify({"status": "ok"}), 200
 
-        order_id = event.get("order_id", "")
-        parts    = order_id.split("::")
-        if len(parts) < 2:
-            log.error(f"Unexpected order_id format: {order_id!r}")
-            return jsonify({"status": "error"}), 200
-
-        email      = parts[0]
-        plan_code  = parts[1]
-        amount_ngn = float(parts[2]) if len(parts) >= 3 else float(event.get("price_amount", 0)) * NGN_TO_USD_RATE
         reference  = f"np_{event.get('payment_id', '')}"
+        order_id   = event.get("order_id", "")
+        parts      = order_id.split("::")
+
+        # Primary path: dynamic invoice had email::plan_code::amount[::region] in order_id
+        if len(parts) >= 2 and "@" in parts[0]:
+            email      = parts[0]
+            plan_code  = parts[1]
+            amount_ngn = float(parts[2]) if len(parts) >= 3 else float(event.get("price_amount", 0)) * NGN_TO_USD_RATE
+            region     = parts[3] if len(parts) >= 4 else "eu"
+        else:
+            # Fallback path: static invoice — look up the pending_payment we stored at initiation
+            # The IPN payload includes the invoice_id field for static invoices
+            iid = str(event.get("invoice_id", "") or event.get("order_id", ""))
+            pending = get_pending_payment(iid) if iid else None
+            if not pending:
+                log.error(f"NOWPayments IPN: no pending_payment found for iid={iid!r}, order_id={order_id!r}")
+                return jsonify({"status": "error", "reason": "unknown invoice"}), 200
+            email      = pending["email"]
+            plan_code  = pending["plan_code"]
+            region     = pending["region"]
+            amount_ngn = float(event.get("price_amount", 0)) * NGN_TO_USD_RATE
+            delete_pending_payment(iid)
+            log.info(f"Resolved static invoice iid={iid} → email={email} plan={plan_code}")
 
         handle_successful_payment(email, amount_ngn, reference, order_id=order_id)
         return jsonify({"status": "ok"}), 200

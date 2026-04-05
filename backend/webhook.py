@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../backend"))
 from provisioner import provision_user, deprovision_user, PLANS
-from database import db_init, record_payment, get_subscription, update_subscription_status, get_devices_for_email, payment_exists
+from database import db_init, record_payment, get_subscription, update_subscription_status, get_devices_for_email, payment_exists, ensure_user
 from emailer import send_welcome_email
 
 load_dotenv()
@@ -62,6 +62,7 @@ def _provision_and_record(email: str, plan_code: str, reference: str, region: st
     plan  = PLAN_MAP.get(plan_code.lower(), PLAN_MAP.get("pro"))
     creds = provision_user(email, plan, region)
     log.info(f"VPN account(s) created for {email} | region={creds['region']}")
+    ensure_user(email)  # guarantee a users row so the customer can log in via OTP
 
     record_payment(
         email=email,
