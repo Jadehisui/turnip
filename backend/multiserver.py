@@ -69,6 +69,54 @@ def load_servers() -> list[VPNServer]:
     return servers
 
 
+# ── Local-mode helpers (when host resolves to this machine) ─────────────────
+
+_LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+def _is_local(host: str) -> bool:
+    return host in _LOCAL_HOSTS
+
+
+def _local_run(cmd: str, timeout: int = 15) -> tuple[str, str, int]:
+    """Run a shell command locally. Returns (stdout, stderr, exit_code)."""
+    try:
+        result = subprocess.run(
+            cmd, shell=True, capture_output=True, text=True, timeout=timeout
+        )
+        return result.stdout.strip(), result.stderr.strip(), result.returncode
+    except Exception as e:
+        log.error(f"Local run error: {e}")
+        return "", str(e), 1
+
+
+def _local_read_file(path: str) -> Optional[str]:
+    try:
+        return Path(path).read_text()
+    except Exception as e:
+        log.error(f"Local read {path} failed: {e}")
+        return None
+
+
+def _local_append_file(path: str, content: str) -> bool:
+    try:
+        with open(path, "a") as f:
+            f.write(content)
+        return True
+    except Exception as e:
+        log.error(f"Local append {path} failed: {e}")
+        return False
+
+
+def _local_write_file(path: str, content: str) -> bool:
+    try:
+        Path(path).write_text(content)
+        return True
+    except Exception as e:
+        log.error(f"Local write {path} failed: {e}")
+        return False
+
+
 # ── SSH helpers ───────────────────────────────────────────────────────────────
 
 def _ssh_connect(host: str) -> paramiko.SSHClient:
@@ -84,7 +132,9 @@ def _ssh_connect(host: str) -> paramiko.SSHClient:
 
 
 def _ssh_run(host: str, cmd: str, timeout: int = 15) -> tuple[str, str, int]:
-    """Run command on remote host. Returns (stdout, stderr, exit_code)."""
+    """Run command on host. Uses local subprocess when host is localhost."""
+    if _is_local(host):
+        return _local_run(cmd, timeout)
     try:
         client = _ssh_connect(host)
         _, stdout, stderr = client.exec_command(cmd, timeout=timeout)
@@ -99,6 +149,8 @@ def _ssh_run(host: str, cmd: str, timeout: int = 15) -> tuple[str, str, int]:
 
 
 def _ssh_read_file(host: str, path: str) -> Optional[str]:
+    if _is_local(host):
+        return _local_read_file(path)
     try:
         client = _ssh_connect(host)
         sftp = client.open_sftp()
@@ -113,6 +165,8 @@ def _ssh_read_file(host: str, path: str) -> Optional[str]:
 
 
 def _ssh_append_file(host: str, path: str, content: str) -> bool:
+    if _is_local(host):
+        return _local_append_file(path, content)
     try:
         client = _ssh_connect(host)
         sftp = client.open_sftp()
@@ -127,6 +181,8 @@ def _ssh_append_file(host: str, path: str, content: str) -> bool:
 
 
 def _ssh_write_file(host: str, path: str, content: str) -> bool:
+    if _is_local(host):
+        return _local_write_file(path, content)
     try:
         client = _ssh_connect(host)
         sftp = client.open_sftp()

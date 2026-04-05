@@ -4,7 +4,7 @@
     "name":      "Netherlands",
     "country":   "Netherlands",
     "flag":      "🇳🇱",
-    "host":      "141.227.149.19",
+    "host":      "127.0.0.1",
     "region":    "nl",
     "continent": "eu",
     "active":    true
