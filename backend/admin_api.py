@@ -9,10 +9,12 @@ the ADMIN_TOKEN environment variable.
 Talks to VPN servers via SSH using multiserver.py helpers.
 """
 
-import os, re, logging
+import os, re, time, subprocess, logging
+from pathlib import Path
 from flask import Flask, jsonify, request, abort
 from flask_cors import CORS
 from dotenv import load_dotenv
+import psutil
 
 load_dotenv()
 
@@ -26,6 +28,7 @@ from multiserver import (
     get_fleet_status,
     _ssh_run,
     _ssh_read_file,
+    _is_local,
     SECRETS_FILE,
     MAX_PER_SERVER,
     add_user_to_server,
@@ -52,6 +55,59 @@ def _require_auth():
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _collect_local_stats() -> dict:
+    """Collect server status for the local machine using psutil."""
+    cpu_pct    = psutil.cpu_percent(interval=0.3)
+    mem        = psutil.virtual_memory()
+    disk       = psutil.disk_usage("/")
+    net_io     = psutil.net_io_counters()
+    uptime_sec = int(time.time() - psutil.boot_time())
+
+    # VPN users from ipsec.secrets
+    try:
+        secrets     = Path(SECRETS_FILE).read_text()
+        total_users = len(re.findall(r"^\S+\s*:\s*EAP", secrets, re.MULTILINE))
+    except Exception:
+        total_users = 0
+
+    # StrongSwan running?
+    try:
+        r = subprocess.run(
+            ["systemctl", "is-active", "strongswan-starter"],
+            capture_output=True, text=True, timeout=3,
+        )
+        vpn_running = r.stdout.strip() == "active"
+    except Exception:
+        vpn_running = False
+
+    # Active tunnels
+    try:
+        ipsec_out = subprocess.run(
+            ["ipsec", "status"], capture_output=True, text=True, timeout=5
+        ).stdout
+        tunnels = _parse_tunnels(ipsec_out)
+    except Exception:
+        tunnels = []
+
+    return {
+        "vpn_running":    vpn_running,
+        "total_users":    total_users,
+        "max_users":      MAX_PER_SERVER,
+        "active_tunnels": len(tunnels),
+        "tunnels":        tunnels,
+        "system": {
+            "cpu_pct":      round(cpu_pct, 1),
+            "mem_pct":      mem.percent,
+            "mem_used_gb":  round(mem.used  / 1e9, 2),
+            "mem_total_gb": round(mem.total / 1e9, 2),
+            "net_rx_gb":    round(net_io.bytes_recv / 1e9, 3),
+            "net_tx_gb":    round(net_io.bytes_sent / 1e9, 3),
+            "disk_pct":     round(disk.percent, 1),
+            "uptime_sec":   uptime_sec,
+        },
+    }
+
 
 def _primary_host() -> str:
     """Return the primary (first active) server host, or abort 503."""
@@ -116,6 +172,9 @@ def _parse_proc_net(dev_output: str) -> tuple[float, float]:
 def get_status():
     _require_auth()
     host = _primary_host()
+
+    if _is_local(host):
+        return jsonify(_collect_local_stats())
 
     # ── System metrics in one SSH call ────────────────────────────────────────
     sys_cmd = (
