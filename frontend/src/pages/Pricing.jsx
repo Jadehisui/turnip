@@ -1,18 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Check, CreditCard, Wallet, MapPin, Globe, Mail, X, Loader2 } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Check, CreditCard, Wallet, MapPin, Globe } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
 const Pricing = () => {
     const { user } = useAuth() || {};
+    const navigate = useNavigate();
     const [country, setCountry] = useState(null);
     const [servers, setServers] = useState([]);
     const [region, setRegion] = useState('eu');
-
-    // Email modal state
-    const [emailPrompt, setEmailPrompt] = useState(null); // { plan, type } or null
-    const [emailValue, setEmailValue] = useState('');
-    const [emailError, setEmailError] = useState('');
     const [paying, setPaying] = useState(false);
 
     useEffect(() => {
@@ -86,14 +83,12 @@ const Pricing = () => {
     ];
 
     const openEmailPrompt = (plan, type) => {
-        // Logged-in users skip the modal — use session email
         if (user?.email) {
             initiatePayment(user.email, plan, type);
             return;
         }
-        setEmailValue('');
-        setEmailError('');
-        setEmailPrompt({ plan, type });
+        // Unauthenticated users go to sign up
+        navigate(`/login?tab=signup&plan=${plan.name.toLowerCase()}&type=${type}`);
     };
 
     const initiatePayment = async (email, plan, type) => {
@@ -125,16 +120,6 @@ const Pricing = () => {
             setEmailError('Connection error. Please try again.');
             setPaying(false);
         }
-    };
-
-    const submitEmailPrompt = async () => {
-        const email = emailValue.trim();
-        if (!email || !email.includes('@')) {
-            setEmailError('Please enter a valid email address.');
-            return;
-        }
-        const { plan, type } = emailPrompt;
-        await initiatePayment(email, plan, type);
     };
 
     const handleCardPayment = (plan) => openEmailPrompt(plan, 'card');
@@ -223,73 +208,7 @@ const Pricing = () => {
                 </div>
             </div>
 
-            {/* Email capture modal for guest users */}
-            <AnimatePresence>
-                {emailPrompt && (
-                    <motion.div
-                        className="modal-overlay"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        onClick={() => !paying && setEmailPrompt(null)}
-                    >
-                        <motion.div
-                            className="modal-box"
-                            initial={{ scale: 0.92, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            exit={{ scale: 0.92, opacity: 0 }}
-                            transition={{ duration: 0.18 }}
-                            onClick={e => e.stopPropagation()}
-                        >
-                            <button className="modal-close" onClick={() => setEmailPrompt(null)} disabled={paying}>
-                                <X size={18} />
-                            </button>
-                            <div className="modal-title">
-                                {emailPrompt.type === 'crypto' ? <Wallet size={20} /> : <CreditCard size={20} />}
-                                {emailPrompt.plan.name} — {emailPrompt.plan.currency}{emailPrompt.plan.price}/mo
-                            </div>
-                            <p className="modal-hint">Enter your email to receive VPN credentials after payment.</p>
-                            <div className="modal-input-wrap">
-                                <Mail size={16} className="modal-inp-icon" />
-                                <input
-                                    type="email"
-                                    placeholder="you@example.com"
-                                    value={emailValue}
-                                    onChange={e => setEmailValue(e.target.value)}
-                                    onKeyDown={e => e.key === 'Enter' && submitEmailPrompt()}
-                                    autoFocus
-                                    disabled={paying}
-                                />
-                            </div>
-                            {emailError && <div className="modal-error">{emailError}</div>}
-                            <button className="modal-btn" onClick={submitEmailPrompt} disabled={paying}>
-                                {paying
-                                    ? <><Loader2 className="modal-spin" size={16} /> Redirecting…</>
-                                    : <>Continue to Payment →</>}
-                            </button>
-                        </motion.div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-
             <style jsx>{`
-        .modal-overlay { position: fixed; inset: 0; background: rgba(2,2,5,0.8); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 200; padding: 1rem; }
-        .modal-box { background: var(--bg2); border: 1px solid var(--border); border-radius: 18px; padding: 2rem; max-width: 420px; width: 100%; position: relative; }
-        .modal-close { position: absolute; top: 14px; right: 14px; background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: var(--text2); cursor: pointer; transition: all 0.2s; }
-        .modal-close:hover { color: var(--text); border-color: var(--accent); }
-        .modal-title { display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 800; color: var(--text); margin-bottom: 0.75rem; }
-        .modal-hint { font-size: 13.5px; color: var(--text2); margin-bottom: 1.5rem; line-height: 1.5; }
-        .modal-input-wrap { position: relative; margin-bottom: 1rem; }
-        .modal-inp-icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--text3); }
-        .modal-input-wrap input { width: 100%; background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; padding: 13px 14px 13px 42px; color: var(--text); font-family: var(--sans); font-size: 15px; box-sizing: border-box; }
-        .modal-input-wrap input:focus { outline: none; border-color: var(--accent); }
-        .modal-input-wrap input::placeholder { color: var(--text3); }
-        .modal-error { background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.25); border-radius: 8px; padding: 9px 13px; font-size: 13px; color: #f87171; margin-bottom: 1rem; }
-        .modal-btn { width: 100%; background: var(--accent); color: #fff; border: none; border-radius: 10px; padding: 13px; font-family: var(--sans); font-size: 15px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: background 0.2s; }
-        .modal-btn:hover:not(:disabled) { background: var(--accent2); }
-        .modal-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-        .modal-spin { animation: mspin 0.8s linear infinite; }
-        @keyframes mspin { to { transform: rotate(360deg); } }
         .pricing-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; max-width: 1000px; margin: 0 auto; }
         .price-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 18px; padding: 2.5rem; position: relative; transition: all 0.2s; display: flex; flex-direction: column; }
         .price-card.featured { border-color: var(--accent); background: var(--surf); box-shadow: 0 20px 40px rgba(0,200,150,0.1); }

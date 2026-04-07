@@ -56,10 +56,15 @@ from emailer import send_registration_notification, send_user_welcome_email, sen
 app = Flask(__name__, 
             static_folder='frontend/dist', 
             template_folder='frontend/dist')
-app.secret_key                  = os.environ.get("PORTAL_SECRET_KEY", secrets.token_hex(32))
+_secret = os.environ.get("PORTAL_SECRET_KEY")
+if not _secret:
+    log.warning("PORTAL_SECRET_KEY not set — sessions will be lost on restart. Set this in .env!")
+    _secret = secrets.token_hex(32)
+app.secret_key                  = _secret
 app.permanent_session_lifetime  = timedelta(hours=12)
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SECURE"]   = os.environ.get("FLASK_ENV", "production") != "development"
 
 db_init()  # ensure tables exist whether running via gunicorn or directly
 

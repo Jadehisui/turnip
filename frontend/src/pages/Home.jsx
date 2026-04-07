@@ -370,7 +370,7 @@ const Footer = () => (
         <div className="container">
             <div className="footer-grid">
                 <div>
-                    <div className="footer-logo">Secure<span>Fast</span></div>
+                    <div className="footer-logo">Turnip<span>VPN</span></div>
                     <div className="footer-desc">High-performance IKEv2/IPsec VPN. Encrypted, private, and fast — for individuals and teams.</div>
                 </div>
                 <div className="footer-col">
@@ -379,6 +379,7 @@ const Footer = () => (
                     <a href="#pricing">Pricing</a>
                     <a href="#platforms">Platforms</a>
                     <a href="#faq">FAQ</a>
+                    <a href="/docs">Guides</a>
                 </div>
                 <div className="footer-col">
                     <h4>Account</h4>

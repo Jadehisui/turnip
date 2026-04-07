@@ -227,6 +227,19 @@ def send_otp_email(to_email: str, code: str):
     log.info(f"OTP email sent to {to_email}")
 
 
+def send_transactional_email(to_email: str, subject: str, html: str, text: str = ""):
+    """Generic transactional email — routes through the configured provider."""
+    settings = _email_settings()
+    _validate_settings(settings)
+    if settings["provider"] == "sendgrid":
+        _send_simple_sendgrid(settings, to_email, subject, html, text)
+    elif settings["provider"] == "resend":
+        _send_simple_resend(settings, to_email, subject, html, text)
+    else:
+        _send_simple_smtp(settings, to_email, subject, html, text)
+    log.info(f"Transactional email sent to {to_email}: {subject}")
+
+
 def _send_simple_resend(settings: dict, to: str, subject: str, html: str, text: str):
     try:
         import resend
@@ -369,7 +382,7 @@ def _send_resend_multi(settings: dict, to: str, subject: str, html: str, text: s
         "html": html,
         "text": text,
         "attachments": [
-            {"filename": att_name, "content": list(att_bytes)}
+            {"filename": att_name, "content": base64.b64encode(att_bytes).decode()}
             for att_bytes, att_name in attachments
         ],
     })

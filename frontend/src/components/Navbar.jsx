@@ -21,6 +21,7 @@ const Navbar = () => {
     { name: 'Features', href: '/#features' },
     { name: 'Protocol', href: '/#how' },
     { name: 'Pricing', href: '/pricing' },
+    { name: 'Guides', href: '/docs' },
   ];
 
   return (
@@ -72,11 +73,17 @@ const Navbar = () => {
               {link.name}
             </a>
           ))}
-          <Link to="/login" onClick={() => setIsMenuOpen(false)}>Login</Link>
-          {user?.email
-            ? <button className="btn btn-ghost" onClick={() => { setIsMenuOpen(false); logout(); }}>Sign out</button>
-            : <Link to="/pricing" className="btn btn-primary" onClick={() => setIsMenuOpen(false)}>Get Started</Link>
-          }
+          {user?.email ? (
+            <>
+              <Link to="/dashboard" onClick={() => setIsMenuOpen(false)}>Dashboard</Link>
+              <button className="btn btn-ghost" onClick={() => { setIsMenuOpen(false); logout(); }}>Sign out</button>
+            </>
+          ) : (
+            <>
+              <Link to="/login" onClick={() => setIsMenuOpen(false)}>Sign in</Link>
+              <Link to="/pricing" className="btn btn-primary" onClick={() => setIsMenuOpen(false)}>Get Started</Link>
+            </>
+          )}
         </div>
       )}
 

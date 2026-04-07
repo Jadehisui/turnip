@@ -22,18 +22,10 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-from database import db_init, get_expired_active, get_expiring_soon, update_subscription_status
+from database import db_init, get_expired_active, get_expiring_soon, update_subscription_status, get_devices_for_email
 from provisioner import deprovision_user
-from emailer import FROM_EMAIL, FROM_NAME
+from emailer import send_transactional_email
 
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-
-SMTP_HOST  = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT  = int(os.environ.get("SMTP_PORT", "587"))
-SMTP_USER  = os.environ.get("SMTP_USER", "")
-SMTP_PASS  = os.environ.get("SMTP_PASS", "")
 VPN_SERVER = os.environ.get("VPN_SERVER_ADDR", "vpn.yourdomain.com")
 
 
@@ -46,8 +38,17 @@ def disable_expired():
 
     for sub in expired:
         log.info(f"Disabling expired account: {sub['username']} ({sub['email']}) — expired {sub['expires_at']}")
+
+        # Deprovision Device 1 (stored in subscriptions.username)
         deprovision_user(sub["username"])
-        update_subscription_status(sub["email"], "expired")
+
+        # Deprovision additional devices for multi-slot plans (Pro/Business)
+        for dev in get_devices_for_email(sub["email"]):
+            if dev["username"] != sub["username"]:
+                log.info(f"  Deprovisioning device {dev['device_number']}: {dev['username']}")
+                deprovision_user(dev["username"])
+
+        update_subscription_status(sub["email"], "expired", subscription_id=sub["id"])
         send_expiry_notice(sub["email"], sub["expires_at"])
 
     log.info(f"Disabled {len(expired)} expired account(s)")
@@ -76,7 +77,7 @@ def send_expiry_notice(email: str, expired_at: str):
     subject = "Your Turnip VPN subscription has expired"
     html = f"""<!DOCTYPE html>
 <html><body style="background:#050810;font-family:-apple-system,sans-serif;padding:40px 20px;max-width:520px;margin:0 auto">
-  <div style="font-size:20px;font-weight:800;color:#e8f0fe;margin-bottom:24px">Secure<span style="color:#00c896">Fast</span> VPN</div>
+  <div style="font-size:20px;font-weight:800;color:#e8f0fe;margin-bottom:24px">Turnip<span style="color:#00c896">VPN</span></div>
   <div style="background:#0a0e1a;border:1px solid rgba(255,71,87,0.2);border-radius:12px;padding:28px">
     <h1 style="font-size:18px;color:#e8f0fe;margin:0 0 12px">Your subscription has expired</h1>
     <p style="color:#8899b4;font-size:14px;line-height:1.6;margin:0 0 20px">
@@ -87,8 +88,9 @@ def send_expiry_notice(email: str, expired_at: str):
   </div>
   <div style="font-size:11px;color:#4a5568;text-align:center;margin-top:24px">Turnip VPN · Zero logs · AES-256</div>
 </body></html>"""
+    text = f"Your Turnip VPN account expired on {dt} and has been deactivated. Renew at https://{VPN_SERVER}/pricing"
 
-    _send_plain(email, subject, html)
+    send_transactional_email(email, subject, html, text)
 
 
 def send_reminder_email(email: str, expires_at: str, plan_name: str):
@@ -100,7 +102,7 @@ def send_reminder_email(email: str, expires_at: str, plan_name: str):
     subject = f"Turnip VPN renews in 3 days — {dt}"
     html = f"""<!DOCTYPE html>
 <html><body style="background:#050810;font-family:-apple-system,sans-serif;padding:40px 20px;max-width:520px;margin:0 auto">
-  <div style="font-size:20px;font-weight:800;color:#e8f0fe;margin-bottom:24px">Secure<span style="color:#00c896">Fast</span> VPN</div>
+  <div style="font-size:20px;font-weight:800;color:#e8f0fe;margin-bottom:24px">Turnip<span style="color:#00c896">VPN</span></div>
   <div style="background:#0a0e1a;border:1px solid rgba(255,184,48,0.2);border-radius:12px;padding:28px">
     <h1 style="font-size:18px;color:#e8f0fe;margin:0 0 12px">Your VPN expires in 3 days</h1>
     <p style="color:#8899b4;font-size:14px;line-height:1.6;margin:0 0 20px">
@@ -112,25 +114,9 @@ def send_reminder_email(email: str, expires_at: str, plan_name: str):
   </div>
   <div style="font-size:11px;color:#4a5568;text-align:center;margin-top:24px">Turnip VPN · Zero logs · AES-256</div>
 </body></html>"""
+    text = f"Your {plan_name} Turnip VPN subscription expires on {dt}. Renew at https://{VPN_SERVER}/pricing"
 
-    _send_plain(email, subject, html)
-
-
-def _send_plain(to: str, subject: str, html: str):
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"]    = f"{FROM_NAME} <{FROM_EMAIL}>"
-    msg["To"]      = to
-    msg.attach(MIMEText(html, "html"))
-
-    try:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-            server.starttls()
-            server.login(SMTP_USER, SMTP_PASS)
-            server.sendmail(FROM_EMAIL, to, msg.as_string())
-        log.info(f"Email sent to {to}: {subject}")
-    except Exception as e:
-        log.error(f"Failed to send email to {to}: {e}")
+    send_transactional_email(email, subject, html, text)
 
 
 if __name__ == "__main__":

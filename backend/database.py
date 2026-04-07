@@ -229,13 +229,20 @@ def get_devices_for_email(email: str) -> list[dict]:
         return [dict(r) for r in rows]
 
 
-def update_subscription_status(email: str, status: str):
+def update_subscription_status(email: str, status: str, subscription_id: int | None = None):
     with get_conn() as conn:
-        conn.execute("""
-            UPDATE subscriptions
-            SET status=?, updated_at=datetime('now')
-            WHERE email=?
-        """, (status, email))
+        if subscription_id is not None:
+            conn.execute("""
+                UPDATE subscriptions
+                SET status=?, updated_at=datetime('now')
+                WHERE id=?
+            """, (status, subscription_id))
+        else:
+            conn.execute("""
+                UPDATE subscriptions
+                SET status=?, updated_at=datetime('now')
+                WHERE email=?
+            """, (status, email))
 
 
 def admin_update_subscription(email: str, status: str = None,

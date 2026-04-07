@@ -276,6 +276,20 @@ success "iptables rules applied and saved"
 
 # ── 10. UFW ──────────────────────────────────────────────────────────────────
 info "Configuring UFW firewall..."
+
+# CRITICAL: UFW sets DEFAULT_FORWARD_POLICY=DROP which blocks VPN traffic
+# forwarding even when net.ipv4.ip_forward=1 and iptables FORWARD rules are set.
+# Must be ACCEPT so VPN clients can reach the internet through the server.
+sed -i 's/DEFAULT_FORWARD_POLICY="DROP"/DEFAULT_FORWARD_POLICY="ACCEPT"/' /etc/default/ufw
+info "UFW forward policy set to ACCEPT"
+
+# Inject NAT masquerade into UFW's before.rules so it persists across 'ufw reload'
+UFW_BEFORE=/etc/ufw/before.rules
+if ! grep -q 'TURNIP-NAT' "${UFW_BEFORE}" 2>/dev/null; then
+    sed -i "1s|^|# TURNIP-NAT\n*nat\n:POSTROUTING ACCEPT [0:0]\n-A POSTROUTING -s ${VPN_SUBNET} -o ${PRIMARY_IFACE} -j MASQUERADE\nCOMMIT\n\n|" "${UFW_BEFORE}"
+    info "NAT MASQUERADE injected into UFW before.rules"
+fi
+
 # Ensure OpenSSH is allowed before enabling to avoid lockout
 ufw allow OpenSSH
 ufw allow 500/udp

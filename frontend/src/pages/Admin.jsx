@@ -63,17 +63,26 @@ const Admin = () => {
             const statusData = await statusRes.json();
             const usersData = await usersRes.json();
 
+            // Normalise tunnels to always be an array so .map() never throws
+            if (statusData && !Array.isArray(statusData.tunnels)) {
+                statusData.tunnels = [];
+            }
+
             setStatus(statusData);
             setUsers(usersData.users || []);
 
             if (serversRes.ok) {
-                const serversData = await serversRes.json();
-                setServers(serversData.servers || []);
+                try {
+                    const serversData = await serversRes.json();
+                    setServers(serversData.servers || []);
+                } catch (_) {}
             }
 
             if (subsRes.ok) {
-                const subsData = await subsRes.json();
-                setSubscribers(subsData.subscribers || []);
+                try {
+                    const subsData = await subsRes.json();
+                    setSubscribers(subsData.subscribers || []);
+                } catch (_) {}
             }
         } catch (error) {
             console.error('Refresh Error:', error);
