@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
     User, Mail, Calendar, Hash, Key, ExternalLink,
@@ -8,23 +9,26 @@ import {
 const Dashboard = () => {
     const [sub, setSub] = useState(null);
     const [copied, setCopied] = useState(null);
+    const navigate = useNavigate();
 
     useEffect(() => {
         const fetchStatus = async () => {
             try {
                 const res = await fetch('/api/user/status');
-                if (res.status === 401) { window.location.href = '/login'; return; }
+                if (res.status === 401) { navigate('/login'); return; }
                 const data = await res.json();
                 if (data.status === 'registered') {
-                    window.location.href = '/pricing';
+                    navigate('/pricing');
+                } else if (data.status === 'expired' || data.status === 'disabled') {
+                    setSub(data);
                 } else if (data.email) {
                     setSub(data);
                 } else {
-                    window.location.href = '/login';
+                    navigate('/login');
                 }
             } catch (err) {
                 console.error('Failed to fetch user status:', err);
-                window.location.href = '/login';
+                navigate('/login');
             }
         };
         fetchStatus();
@@ -37,6 +41,34 @@ const Dashboard = () => {
     };
 
     if (!sub) return <div className="loading">Loading...</div>;
+
+    if (sub.status === 'expired' || sub.status === 'disabled') {
+        return (
+            <div className="dashboard container">
+                <motion.div
+                    className="expired-wall"
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                >
+                    <div className="expired-icon">⏱</div>
+                    <h2>Your subscription has expired</h2>
+                    <p>Your VPN access ended on <strong>{sub.expires_at?.split('T')[0]}</strong>. Renew to restore your encrypted connection.</p>
+                    <button className="btn-renew" onClick={() => navigate('/pricing')}>Renew subscription →</button>
+                </motion.div>
+                <style jsx>{`
+                    .dashboard { padding-top: 8rem; padding-bottom: 5rem; display: flex; align-items: center; justify-content: center; min-height: 70vh; }
+                    .expired-wall { background: var(--bg2); border: 1px solid rgba(255,71,87,0.25); border-radius: 20px; padding: 3rem 2.5rem; max-width: 460px; width: 100%; text-align: center; }
+                    .expired-icon { font-size: 40px; margin-bottom: 1.25rem; }
+                    h2 { font-size: 22px; font-weight: 800; color: var(--text); margin-bottom: 1rem; }
+                    p { color: var(--text2); font-size: 14px; line-height: 1.7; margin-bottom: 2rem; }
+                    strong { color: var(--text); }
+                    .btn-renew { background: var(--accent); color: #050810; font-size: 15px; font-weight: 800; padding: 14px 32px; border-radius: 10px; border: none; cursor: pointer; transition: opacity .2s; width: 100%; }
+                    .btn-renew:hover { opacity: .85; }
+                `}</style>
+            </div>
+        );
+    }
+
 
     return (
         <div className="dashboard container">

@@ -272,28 +272,9 @@ def logout():
 
 
 @app.route("/dashboard")
-@login_required
 def dashboard():
-    sub = get_current_user()
-    if not sub:
-        session.pop("email", "")
-        return redirect(url_for("login_page", error="Account not found"))
-
-    days = days_remaining(sub.get("expires_at", ""))
-    status = sub.get("status", "active")
-
-    return render_template_string(
-        DASHBOARD_TEMPLATE,
-        sub=sub,
-        days=days,
-        status=status,
-        server=VPN_SERVER_ADDR,
-        plans=PLANS,
-        sub_plan_min_amount=next(
-            (p["min_amount"] for p in PLANS if p["name"].lower() == sub.get("plan_name", "").lower()),
-            0,
-        ),
-    )
+    # Dashboard UI is handled by the React SPA
+    return send_from_directory(app.static_folder, 'index.html')
 
 
 @app.route("/download/profile")
@@ -683,7 +664,7 @@ LOGIN_TEMPLATE = """<!DOCTYPE html>
 </style>
 <div class="wrap">
   <div class="box">
-    <div style="font-size:22px;font-weight:800;text-align:center;margin-bottom:.5rem">Secure<span style="color:var(--accent)">Fast</span></div>
+    <div style="font-size:22px;font-weight:800;text-align:center;margin-bottom:.5rem">Turnip<span style="color:var(--accent)">VPN</span></div>
     <div style="text-align:center;color:var(--text2);font-size:13px;margin-bottom:2rem">Sign in to your VPN account</div>
     <div class="err">{{ error }}</div>
     <form method="POST" action="/login">
@@ -803,7 +784,7 @@ DASHBOARD_TEMPLATE = """<!DOCTYPE html>
 </style>
 
 <nav class="nav">
-  <div class="logo">Secure<span>Fast</span></div>
+  <div class="logo">Turnip<span>VPN</span></div>
   <div class="nav-right">
     <span style="font-size:12px;color:var(--text2)">{{ sub.email }}</span>
     <a href="/logout" class="btn btn-danger">Sign out</a>
@@ -1043,7 +1024,7 @@ PRICING_TEMPLATE = """<!DOCTYPE html>
 <head>""" + _BASE_STYLE + """<title>Turnip VPN — Pricing</title></head>
 <body>
 <nav class="nav">
-  <a href="/" class="logo">Secure<span>Fast</span></a>
+  <a href="/" class="logo">Turnip<span>VPN</span></a>
   <div class="nav-right">
     {% if email %}<a href="/dashboard" class="btn btn-accent">Dashboard</a>
     {% else %}<a href="/login" class="btn">Sign in</a>{% endif %}
