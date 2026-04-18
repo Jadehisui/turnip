@@ -28,6 +28,13 @@ const Admin = () => {
         setTimeout(() => setToast({ show: false, text: '', type: 'ok' }), 3500);
     };
 
+    const isAdminStatusPayload = (data) => {
+        return data && typeof data === 'object' &&
+            Object.prototype.hasOwnProperty.call(data, 'max_users') &&
+            Object.prototype.hasOwnProperty.call(data, 'total_users') &&
+            Object.prototype.hasOwnProperty.call(data, 'system');
+    };
+
     const apiFetch = async (path, opts = {}) => {
         const url = `${apiUrl.replace(/\/$/, '')}${path}`;
         try {
@@ -62,6 +69,10 @@ const Admin = () => {
 
             const statusData = await statusRes.json();
             const usersData = await usersRes.json();
+
+            if (!isAdminStatusPayload(statusData)) {
+                throw new Error('Wrong API base URL. Use /admin-api (admin backend), not the customer portal API.');
+            }
 
             // Normalise tunnels to always be an array so .map() never throws
             if (statusData && !Array.isArray(statusData.tunnels)) {
@@ -106,6 +117,11 @@ const Admin = () => {
         try {
             const res = await apiFetch('/api/status');
             if (res.ok) {
+                const statusData = await res.json();
+                if (!isAdminStatusPayload(statusData)) {
+                    setLoginError('Connected to wrong API. Use https://<domain>/admin-api');
+                    return;
+                }
                 sessionStorage.setItem('admin_token', token);
                 setIsLoggedIn(true);
                 setLoginError('');
