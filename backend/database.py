@@ -279,6 +279,60 @@ def admin_update_subscription(email: str, status: str = None,
         )
 
 
+def admin_save_provisioned_credentials(
+    email: str,
+    plan_name: str,
+    region: str,
+    creds: dict,
+    duration_days: int = 30,
+    status: str = "active",
+):
+    """Persist admin-generated credentials into subscriptions and subscription_devices."""
+    email = email.strip().lower()
+    now = datetime.utcnow().isoformat()
+    expires_at = (datetime.utcnow() + timedelta(days=max(1, int(duration_days or 30)))).isoformat()
+
+    username = creds["username"]
+    password = creds["password"]
+    devices = creds.get("devices") or []
+
+    with get_conn() as conn:
+        existing = conn.execute(
+            "SELECT id FROM subscriptions WHERE email = ? ORDER BY id DESC LIMIT 1",
+            (email,)
+        ).fetchone()
+
+        if existing:
+            conn.execute(
+                """
+                UPDATE subscriptions
+                SET username=?, password=?, plan_name=?, status=?, server_region=?, expires_at=?, updated_at=?
+                WHERE id=?
+                """,
+                (username, password, plan_name, status, region, expires_at, now, existing["id"])
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO subscriptions
+                    (email, username, password, plan_name, status, server_region, expires_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (email, username, password, plan_name, status, region, expires_at, now, now)
+            )
+
+        conn.execute("DELETE FROM subscription_devices WHERE email = ?", (email,))
+        for dev in devices:
+            conn.execute(
+                """
+                INSERT INTO subscription_devices
+                    (email, device_number, username, password, server_region)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (email, dev["device_number"], dev["username"], dev["password"], region)
+            )
+
+
 # ── Read operations ────────────────────────────────────────────────────────────
 
 def payment_exists(reference: str) -> bool:

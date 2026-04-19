@@ -39,6 +39,15 @@ PLANS = [
 DEFAULT_PLAN = {"name": "Pro", "duration_days": 30, "devices": 5}
 
 
+def get_plan_by_name(plan_name: str) -> dict:
+    if not plan_name:
+        return DEFAULT_PLAN
+    for plan in PLANS:
+        if plan["name"].lower() == plan_name.lower():
+            return plan
+    return DEFAULT_PLAN
+
+
 def get_plan_for_amount(amount_ngn: float, plan_code: str = "") -> dict:
     """Match plan by code (primary) or payment amount (fallback)."""
     if plan_code:
@@ -134,6 +143,23 @@ def provision_user(email: str, plan: dict, region: str = "eu") -> dict:
             f"Server at capacity ({MAX_USERS} users). "
             "Cannot provision new account."
         )
+
+
+def provision_user_with_device_count(
+    email: str,
+    plan_name: str,
+    duration_days: int,
+    device_count: int,
+    region: str = "eu",
+) -> dict:
+    """Provision VPN credentials with an explicit device count for admin/demo flows."""
+    safe_devices = max(1, min(int(device_count), 10))
+    plan = {
+        "name": plan_name or "Demo",
+        "duration_days": max(1, int(duration_days or 30)),
+        "devices": safe_devices,
+    }
+    return provision_user(email=email, plan=plan, region=region)
 
     # Resolve continent → best specific server
     if region in CONTINENT_CODES:

@@ -199,19 +199,65 @@ const Admin = () => {
     };
 
     const handleSubAction = async (email, action, days = 30) => {
-        const labels = { extend: `Extend ${days}d`, activate: 'Activate', suspend: 'Suspend', expire: 'Expire' };
+        const labels = { extend: `Extend ${days}d`, activate: 'Activate + Send Configs', suspend: 'Suspend', expire: 'Expire' };
         if (!window.confirm(`${labels[action] || action} for ${email}?`)) return;
         try {
+            const body = { action, days };
+            if (action === 'activate') {
+                body.provision = true;
+                body.send_email = true;
+            }
             const res = await apiFetch(`/api/subscribers/${encodeURIComponent(email)}`, {
                 method: 'PUT',
-                body: JSON.stringify({ action, days }),
+                body: JSON.stringify(body),
             });
             const data = await res.json();
             if (res.ok) {
-                showToast(`${labels[action]} applied to ${email}`);
+                if (action === 'activate') {
+                    showToast(`Activated ${email} | configs provisioned${data.emailed_user ? ' + emailed' : ''}`);
+                } else {
+                    showToast(`${labels[action]} applied to ${email}`);
+                }
                 refresh();
             } else {
                 showToast(data.error || 'Action failed', 'err');
+            }
+        } catch {
+            showToast('API error', 'err');
+        }
+    };
+
+    const handleGenerateConfig = async (email) => {
+        const numInput = window.prompt('How many device configs to generate? (1-10)', '1');
+        if (numInput === null) return;
+        const parsed = Number.parseInt(numInput, 10);
+        if (!Number.isInteger(parsed) || parsed < 1 || parsed > 10) {
+            showToast('Device count must be between 1 and 10', 'err');
+            return;
+        }
+
+        const regionInput = window.prompt('Region code (eu/na/as or nl/us/sg etc.)', 'eu');
+        if (regionInput === null) return;
+
+        try {
+            const res = await apiFetch(`/api/subscribers/${encodeURIComponent(email)}/generate-config`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    num_devices: parsed,
+                    region: (regionInput || 'eu').trim().toLowerCase(),
+                    send_email: true,
+                    replace_existing: true,
+                    plan_name: 'Demo',
+                    duration_days: 30,
+                }),
+            });
+            const data = await res.json();
+            if (res.ok) {
+                const count = Array.isArray(data.devices) ? data.devices.length : parsed;
+                showToast(`Generated ${count} config(s) for ${email}${data.emailed_user ? ' + emailed' : ''}`);
+                refresh();
+            } else {
+                showToast(data.error || 'Config generation failed', 'err');
             }
         } catch {
             showToast('API error', 'err');
@@ -484,8 +530,9 @@ const Admin = () => {
                                             <td>
                                                 <div className="sub-actions">
                                                     <button className="sub-btn ext" onClick={() => handleSubAction(s.email, 'extend', 30)} title="Extend 30 days">+30d</button>
-                                                    {s.sub_status !== 'active' && <button className="sub-btn act" onClick={() => handleSubAction(s.email, 'activate')} title="Activate">Activate</button>}
+                                                    {s.sub_status !== 'active' && <button className="sub-btn act" onClick={() => handleSubAction(s.email, 'activate')} title="Activate + email configs">Activate</button>}
                                                     {s.sub_status === 'active' && <button className="sub-btn sus" onClick={() => handleSubAction(s.email, 'suspend')} title="Suspend">Suspend</button>}
+                                                    <button className="sub-btn demo" onClick={() => handleGenerateConfig(s.email)} title="Generate demo/test configs">Demo</button>
                                                 </div>
                                             </td>
                                         </tr>
@@ -766,6 +813,7 @@ const Admin = () => {
         .sub-btn.ext { background: rgba(168,85,247,0.1); border-color: rgba(168,85,247,0.3); color: var(--accent); }
         .sub-btn.act { background: rgba(74,222,128,0.08); border-color: rgba(74,222,128,0.25); color: var(--green, #4ade80); }
         .sub-btn.sus { background: rgba(251,146,60,0.08); border-color: rgba(251,146,60,0.25); color: var(--amber, #fb923c); }
+                .sub-btn.demo { background: rgba(79,163,224,0.08); border-color: rgba(79,163,224,0.25); color: var(--blue); }
       `}</style>
         </div>
     );
