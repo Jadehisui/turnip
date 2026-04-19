@@ -6,10 +6,9 @@ const Admin = () => {
     const [isLoggedIn, setIsLoggedIn] = useState(() => !!sessionStorage.getItem('admin_token'));
     const [token, setToken] = useState(() => sessionStorage.getItem('admin_token') || '');
     const [apiUrl, setApiUrl] = useState(() => {
+        const saved = sessionStorage.getItem('admin_api_url');
+        if (saved) return saved;
         const { hostname, protocol } = window.location;
-        if (hostname === 'localhost' || hostname === '127.0.0.1') {
-            return 'http://127.0.0.1:8765';
-        }
         return `${protocol}//${hostname}/admin-api`;
     });
     const [loginError, setLoginError] = useState('');
@@ -50,19 +49,6 @@ const Admin = () => {
         } catch (error) {
             console.error('API Fetch Error:', error);
             throw error;
-        }
-    };
-
-    const readApiError = async (res, fallback = 'Request failed') => {
-        try {
-            const data = await res.json();
-            return data?.error || fallback;
-        } catch (_) {
-            try {
-                const text = await res.text();
-                if (text && text.trim()) return text.slice(0, 160);
-            } catch (_) {}
-            return fallback;
         }
     };
 
@@ -136,6 +122,7 @@ const Admin = () => {
                     return;
                 }
                 sessionStorage.setItem('admin_token', token);
+                sessionStorage.setItem('admin_api_url', apiUrl);
                 setIsLoggedIn(true);
                 setLoginError('');
                 startPolling();
@@ -212,125 +199,22 @@ const Admin = () => {
     };
 
     const handleSubAction = async (email, action, days = 30) => {
-        const labels = { extend: `Extend ${days}d`, activate: 'Activate + Send Configs', suspend: 'Suspend', expire: 'Expire' };
+        const labels = { extend: `Extend ${days}d`, activate: 'Activate', suspend: 'Suspend', expire: 'Expire' };
         if (!window.confirm(`${labels[action] || action} for ${email}?`)) return;
         try {
-            const body = { action, days };
-            if (action === 'activate') {
-                body.provision = true;
-                body.send_email = true;
-            }
             const res = await apiFetch(`/api/subscribers/${encodeURIComponent(email)}`, {
                 method: 'PUT',
-                body: JSON.stringify(body),
+                body: JSON.stringify({ action, days }),
             });
             const data = await res.json();
             if (res.ok) {
-                if (action === 'activate') {
-                    showToast(`Activated ${email} | configs provisioned${data.emailed_user ? ' + emailed' : ''}`);
-                } else {
-                    showToast(`${labels[action]} applied to ${email}`);
-                }
+                showToast(`${labels[action]} applied to ${email}`);
                 refresh();
             } else {
                 showToast(data.error || 'Action failed', 'err');
             }
         } catch {
             showToast('API error', 'err');
-        }
-    };
-
-    const handleGenerateConfig = async (subscriber) => {
-        const email = subscriber?.email;
-        if (!email) {
-            showToast('Subscriber email missing', 'err');
-            return;
-        }
-
-        const planName = (subscriber?.plan_name || 'Demo').toLowerCase();
-        const devicesByPlan = { basic: 1, pro: 5, business: 10 };
-        const numDevices = devicesByPlan[planName] || 1;
-        const region = 'eu';
-
-        if (!window.confirm(`Generate ${numDevices} VPN config(s) for ${email} and email them now?`)) {
-            return;
-        }
-
-        try {
-            const res = await apiFetch(`/api/subscribers/${encodeURIComponent(email)}/generate-config`, {
-                method: 'POST',
-                body: JSON.stringify({
-                    num_devices: numDevices,
-                    region,
-                    send_email: true,
-                    replace_existing: true,
-                    plan_name: subscriber?.plan_name || 'Demo',
-                    duration_days: 30,
-                }),
-            });
-            if (res.ok) {
-                const data = await res.json();
-                const count = Array.isArray(data.devices) ? data.devices.length : numDevices;
-                showToast(`Generated ${count} config(s) for ${email}${data.emailed_user ? ' + emailed' : ''}`);
-                refresh();
-            } else {
-                showToast(await readApiError(res, 'Config generation failed'), 'err');
-            }
-        } catch (error) {
-            showToast(`API error: ${error.message || 'request failed'}`, 'err');
-        }
-    };
-
-    const handleTerminateConfigs = async (subscriber) => {
-        const email = subscriber?.email;
-        if (!email) {
-            showToast('Subscriber email missing', 'err');
-            return;
-        }
-
-        if (!window.confirm(`Terminate all active VPN configs for ${email}? This removes them from server immediately.`)) {
-            return;
-        }
-
-        try {
-            const res = await apiFetch(`/api/subscribers/${encodeURIComponent(email)}/terminate-configs`, {
-                method: 'POST',
-            });
-            if (res.ok) {
-                const data = await res.json();
-                showToast(`Terminated ${data.terminated}/${data.attempted} config(s) for ${email}`);
-                refresh();
-            } else {
-                showToast(await readApiError(res, 'Terminate configs failed'), 'err');
-            }
-        } catch (error) {
-            showToast(`API error: ${error.message || 'request failed'}`, 'err');
-        }
-    };
-
-    const handleResendConfigs = async (subscriber) => {
-        const email = subscriber?.email;
-        if (!email) {
-            showToast('Subscriber email missing', 'err');
-            return;
-        }
-
-        if (!window.confirm(`Resend current VPN configs to ${email}?`)) {
-            return;
-        }
-
-        try {
-            const res = await apiFetch(`/api/subscribers/${encodeURIComponent(email)}/resend-configs`, {
-                method: 'POST',
-            });
-            if (res.ok) {
-                const data = await res.json();
-                showToast(`Resent ${data.devices} config(s) to ${email}`);
-            } else {
-                showToast(await readApiError(res, 'Resend configs failed'), 'err');
-            }
-        } catch (error) {
-            showToast(`API error: ${error.message || 'request failed'}`, 'err');
         }
     };
 
@@ -600,11 +484,8 @@ const Admin = () => {
                                             <td>
                                                 <div className="sub-actions">
                                                     <button className="sub-btn ext" onClick={() => handleSubAction(s.email, 'extend', 30)} title="Extend 30 days">+30d</button>
-                                                    {s.sub_status !== 'active' && <button className="sub-btn act" onClick={() => handleSubAction(s.email, 'activate')} title="Activate + email configs">Activate</button>}
+                                                    {s.sub_status !== 'active' && <button className="sub-btn act" onClick={() => handleSubAction(s.email, 'activate')} title="Activate">Activate</button>}
                                                     {s.sub_status === 'active' && <button className="sub-btn sus" onClick={() => handleSubAction(s.email, 'suspend')} title="Suspend">Suspend</button>}
-                                                    <button className="sub-btn demo" onClick={() => handleGenerateConfig(s)} title="Generate demo/test configs">Demo</button>
-                                                    <button className="sub-btn resend" onClick={() => handleResendConfigs(s)} title="Resend current stored configs">Resend</button>
-                                                    <button className="sub-btn term" onClick={() => handleTerminateConfigs(s)} title="Terminate all configs on server">Terminate</button>
                                                 </div>
                                             </td>
                                         </tr>
@@ -885,9 +766,6 @@ const Admin = () => {
         .sub-btn.ext { background: rgba(168,85,247,0.1); border-color: rgba(168,85,247,0.3); color: var(--accent); }
         .sub-btn.act { background: rgba(74,222,128,0.08); border-color: rgba(74,222,128,0.25); color: var(--green, #4ade80); }
         .sub-btn.sus { background: rgba(251,146,60,0.08); border-color: rgba(251,146,60,0.25); color: var(--amber, #fb923c); }
-                .sub-btn.demo { background: rgba(79,163,224,0.08); border-color: rgba(79,163,224,0.25); color: var(--blue); }
-                                .sub-btn.resend { background: rgba(16,185,129,0.08); border-color: rgba(16,185,129,0.25); color: #10b981; }
-                .sub-btn.term { background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.25); color: var(--red); }
       `}</style>
         </div>
     );
