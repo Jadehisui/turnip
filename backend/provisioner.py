@@ -144,23 +144,6 @@ def provision_user(email: str, plan: dict, region: str = "eu") -> dict:
             "Cannot provision new account."
         )
 
-
-def provision_user_with_device_count(
-    email: str,
-    plan_name: str,
-    duration_days: int,
-    device_count: int,
-    region: str = "eu",
-) -> dict:
-    """Provision VPN credentials with an explicit device count for admin/demo flows."""
-    safe_devices = max(1, min(int(device_count), 10))
-    plan = {
-        "name": plan_name or "Demo",
-        "duration_days": max(1, int(duration_days or 30)),
-        "devices": safe_devices,
-    }
-    return provision_user(email=email, plan=plan, region=region)
-
     # Resolve continent → best specific server
     if region in CONTINENT_CODES:
         srv = get_server_for_continent(region)
@@ -209,6 +192,23 @@ def provision_user_with_device_count(
         # Full device list
         "devices":          devices,
     }
+
+
+def provision_user_with_device_count(
+    email: str,
+    plan_name: str,
+    duration_days: int,
+    device_count: int,
+    region: str = "eu",
+) -> dict:
+    """Provision VPN credentials with an explicit device count for admin/demo flows."""
+    safe_devices = max(1, min(int(device_count), 10))
+    plan = {
+        "name": plan_name or "Demo",
+        "duration_days": max(1, int(duration_days or 30)),
+        "devices": safe_devices,
+    }
+    return provision_user(email=email, plan=plan, region=region)
 
 
 def deprovision_user(username: str):
