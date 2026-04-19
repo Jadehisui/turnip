@@ -240,33 +240,37 @@ const Admin = () => {
         }
     };
 
-    const handleGenerateConfig = async (email) => {
-        const numInput = window.prompt('How many device configs to generate? (1-10)', '1');
-        if (numInput === null) return;
-        const parsed = Number.parseInt(numInput, 10);
-        if (!Number.isInteger(parsed) || parsed < 1 || parsed > 10) {
-            showToast('Device count must be between 1 and 10', 'err');
+    const handleGenerateConfig = async (subscriber) => {
+        const email = subscriber?.email;
+        if (!email) {
+            showToast('Subscriber email missing', 'err');
             return;
         }
 
-        const regionInput = window.prompt('Region code (eu/na/as or nl/us/sg etc.)', 'eu');
-        if (regionInput === null) return;
+        const planName = (subscriber?.plan_name || 'Demo').toLowerCase();
+        const devicesByPlan = { basic: 1, pro: 5, business: 10 };
+        const numDevices = devicesByPlan[planName] || 1;
+        const region = 'eu';
+
+        if (!window.confirm(`Generate ${numDevices} VPN config(s) for ${email} and email them now?`)) {
+            return;
+        }
 
         try {
             const res = await apiFetch(`/api/subscribers/${encodeURIComponent(email)}/generate-config`, {
                 method: 'POST',
                 body: JSON.stringify({
-                    num_devices: parsed,
-                    region: (regionInput || 'eu').trim().toLowerCase(),
+                    num_devices: numDevices,
+                    region,
                     send_email: true,
                     replace_existing: true,
-                    plan_name: 'Demo',
+                    plan_name: subscriber?.plan_name || 'Demo',
                     duration_days: 30,
                 }),
             });
             if (res.ok) {
                 const data = await res.json();
-                const count = Array.isArray(data.devices) ? data.devices.length : parsed;
+                const count = Array.isArray(data.devices) ? data.devices.length : numDevices;
                 showToast(`Generated ${count} config(s) for ${email}${data.emailed_user ? ' + emailed' : ''}`);
                 refresh();
             } else {
@@ -545,7 +549,7 @@ const Admin = () => {
                                                     <button className="sub-btn ext" onClick={() => handleSubAction(s.email, 'extend', 30)} title="Extend 30 days">+30d</button>
                                                     {s.sub_status !== 'active' && <button className="sub-btn act" onClick={() => handleSubAction(s.email, 'activate')} title="Activate + email configs">Activate</button>}
                                                     {s.sub_status === 'active' && <button className="sub-btn sus" onClick={() => handleSubAction(s.email, 'suspend')} title="Suspend">Suspend</button>}
-                                                    <button className="sub-btn demo" onClick={() => handleGenerateConfig(s.email)} title="Generate demo/test configs">Demo</button>
+                                                    <button className="sub-btn demo" onClick={() => handleGenerateConfig(s)} title="Generate demo/test configs">Demo</button>
                                                 </div>
                                             </td>
                                         </tr>
