@@ -281,6 +281,59 @@ const Admin = () => {
         }
     };
 
+    const handleTerminateConfigs = async (subscriber) => {
+        const email = subscriber?.email;
+        if (!email) {
+            showToast('Subscriber email missing', 'err');
+            return;
+        }
+
+        if (!window.confirm(`Terminate all active VPN configs for ${email}? This removes them from server immediately.`)) {
+            return;
+        }
+
+        try {
+            const res = await apiFetch(`/api/subscribers/${encodeURIComponent(email)}/terminate-configs`, {
+                method: 'POST',
+            });
+            if (res.ok) {
+                const data = await res.json();
+                showToast(`Terminated ${data.terminated}/${data.attempted} config(s) for ${email}`);
+                refresh();
+            } else {
+                showToast(await readApiError(res, 'Terminate configs failed'), 'err');
+            }
+        } catch (error) {
+            showToast(`API error: ${error.message || 'request failed'}`, 'err');
+        }
+    };
+
+    const handleResendConfigs = async (subscriber) => {
+        const email = subscriber?.email;
+        if (!email) {
+            showToast('Subscriber email missing', 'err');
+            return;
+        }
+
+        if (!window.confirm(`Resend current VPN configs to ${email}?`)) {
+            return;
+        }
+
+        try {
+            const res = await apiFetch(`/api/subscribers/${encodeURIComponent(email)}/resend-configs`, {
+                method: 'POST',
+            });
+            if (res.ok) {
+                const data = await res.json();
+                showToast(`Resent ${data.devices} config(s) to ${email}`);
+            } else {
+                showToast(await readApiError(res, 'Resend configs failed'), 'err');
+            }
+        } catch (error) {
+            showToast(`API error: ${error.message || 'request failed'}`, 'err');
+        }
+    };
+
     const generatePass = () => {
         const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$';
         return Array.from({ length: 18 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
@@ -550,6 +603,8 @@ const Admin = () => {
                                                     {s.sub_status !== 'active' && <button className="sub-btn act" onClick={() => handleSubAction(s.email, 'activate')} title="Activate + email configs">Activate</button>}
                                                     {s.sub_status === 'active' && <button className="sub-btn sus" onClick={() => handleSubAction(s.email, 'suspend')} title="Suspend">Suspend</button>}
                                                     <button className="sub-btn demo" onClick={() => handleGenerateConfig(s)} title="Generate demo/test configs">Demo</button>
+                                                    <button className="sub-btn resend" onClick={() => handleResendConfigs(s)} title="Resend current stored configs">Resend</button>
+                                                    <button className="sub-btn term" onClick={() => handleTerminateConfigs(s)} title="Terminate all configs on server">Terminate</button>
                                                 </div>
                                             </td>
                                         </tr>
@@ -831,6 +886,8 @@ const Admin = () => {
         .sub-btn.act { background: rgba(74,222,128,0.08); border-color: rgba(74,222,128,0.25); color: var(--green, #4ade80); }
         .sub-btn.sus { background: rgba(251,146,60,0.08); border-color: rgba(251,146,60,0.25); color: var(--amber, #fb923c); }
                 .sub-btn.demo { background: rgba(79,163,224,0.08); border-color: rgba(79,163,224,0.25); color: var(--blue); }
+                                .sub-btn.resend { background: rgba(16,185,129,0.08); border-color: rgba(16,185,129,0.25); color: #10b981; }
+                .sub-btn.term { background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.25); color: var(--red); }
       `}</style>
         </div>
     );

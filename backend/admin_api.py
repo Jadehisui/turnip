@@ -29,12 +29,15 @@ from database import (
     get_devices_for_email,
     ensure_user,
     admin_save_provisioned_credentials,
+    clear_devices_for_email,
 )
 from provisioner import (
     get_plan_by_name,
     provision_user,
     provision_user_with_device_count,
     deprovision_user,
+    generate_mobileconfig,
+    get_server_host,
 )
 from emailer import send_welcome_email
 
@@ -189,6 +192,19 @@ def _deprovision_existing_devices(email: str):
     for dev in get_devices_for_email(email):
         if dev.get("username"):
             deprovision_user(dev["username"])
+
+
+def _collect_usernames_for_email(email: str) -> list[str]:
+    usernames = []
+    sub = get_subscription(email=email)
+    if sub and sub.get("username"):
+        usernames.append(sub["username"])
+    for dev in get_devices_for_email(email):
+        u = dev.get("username")
+        if u:
+            usernames.append(u)
+    # Keep insertion order, drop duplicates
+    return list(dict.fromkeys(usernames))
 
 
 def _send_admin_copy_if_configured(creds: dict, plan: dict):
@@ -545,6 +561,107 @@ def generate_demo_config(email):
     except Exception as exc:
         log.exception(f"Config generation failed for {email}: {exc}")
         return jsonify({"error": "Config generation failed on server. Check turnip-api logs."}), 500
+
+
+@app.route("/api/subscribers/<path:email>/terminate-configs", methods=["POST"])
+def terminate_subscriber_configs(email):
+    _require_auth()
+
+    try:
+        usernames = _collect_usernames_for_email(email)
+        if not usernames:
+            return jsonify({"error": "No configs found for this subscriber"}), 404
+
+        removed = 0
+        failures = []
+        for username in usernames:
+            try:
+                deprovision_user(username)
+                removed += 1
+            except Exception as exc:
+                failures.append({"username": username, "error": str(exc)})
+
+        admin_update_subscription(email, status="disabled")
+        deleted_rows = clear_devices_for_email(email)
+
+        log.info(
+            f"Admin terminated configs for {email} | removed={removed}/{len(usernames)} "
+            f"| deleted_device_rows={deleted_rows}"
+        )
+        return jsonify({
+            "ok": True,
+            "email": email,
+            "terminated": removed,
+            "attempted": len(usernames),
+            "deleted_device_rows": deleted_rows,
+            "status": "disabled",
+            "failures": failures,
+        })
+    except Exception as exc:
+        log.exception(f"Terminate configs failed for {email}: {exc}")
+        return jsonify({"error": "Terminate configs failed on server. Check turnip-api logs."}), 500
+
+
+@app.route("/api/subscribers/<path:email>/resend-configs", methods=["POST"])
+def resend_subscriber_configs(email):
+    _require_auth()
+
+    try:
+        sub = get_subscription(email=email)
+        if not sub:
+            return jsonify({"error": "Subscriber not found"}), 404
+
+        devices = get_devices_for_email(email)
+        if not devices and sub.get("username") and sub.get("password"):
+            devices = [{
+                "device_number": 1,
+                "username": sub["username"],
+                "password": sub["password"],
+                "server_region": sub.get("server_region", "eu"),
+            }]
+
+        if not devices:
+            return jsonify({"error": "No stored configs found for this subscriber"}), 404
+
+        enriched_devices = []
+        for dev in devices:
+            server_host = get_server_host(dev.get("server_region", sub.get("server_region", "eu")))
+            profile_b64 = generate_mobileconfig(dev["username"], dev["password"], server_host)
+            enriched_devices.append({
+                "device_number": dev["device_number"],
+                "username": dev["username"],
+                "password": dev["password"],
+                "server": server_host,
+                "mobileconfig_b64": profile_b64,
+            })
+
+        creds = {
+            "username": enriched_devices[0]["username"],
+            "password": enriched_devices[0]["password"],
+            "server": enriched_devices[0]["server"],
+            "mobileconfig_b64": enriched_devices[0]["mobileconfig_b64"],
+            "devices": enriched_devices,
+            "region": sub.get("server_region", "eu"),
+            "email": email,
+        }
+        plan = get_plan_by_name(sub.get("plan_name", "Pro"))
+
+        send_welcome_email(email, creds, plan)
+        emailed_admin = _send_admin_copy_if_configured(creds, plan)
+
+        log.info(
+            f"Admin resent configs for {email} | devices={len(enriched_devices)} | emailed_admin={emailed_admin}"
+        )
+        return jsonify({
+            "ok": True,
+            "email": email,
+            "devices": len(enriched_devices),
+            "emailed_user": True,
+            "emailed_admin": emailed_admin,
+        })
+    except Exception as exc:
+        log.exception(f"Resend configs failed for {email}: {exc}")
+        return jsonify({"error": "Resend configs failed on server. Check turnip-api logs."}), 500
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

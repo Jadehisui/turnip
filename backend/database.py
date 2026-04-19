@@ -229,6 +229,13 @@ def get_devices_for_email(email: str) -> list[dict]:
         return [dict(r) for r in rows]
 
 
+def clear_devices_for_email(email: str) -> int:
+    """Delete all per-device credential rows for a subscriber email."""
+    with get_conn() as conn:
+        cur = conn.execute("DELETE FROM subscription_devices WHERE email = ?", (email.strip().lower(),))
+        return cur.rowcount
+
+
 def update_subscription_status(email: str, status: str, subscription_id: int | None = None):
     with get_conn() as conn:
         if subscription_id is not None:
