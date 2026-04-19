@@ -49,7 +49,13 @@ def send_welcome_email(to_email: str, creds: dict, plan: dict):
     """Send welcome email with credentials and .mobileconfig attachments for all devices."""
     settings = _email_settings()
     _validate_settings(settings)
-    subject = "Your Turnip VPN is ready — connect in 60 seconds"
+    plan_name = (plan or {}).get("name", "")
+    is_demo = plan_name.strip().lower() == "demo"
+    subject = (
+        "You've been chosen to test Turnip VPN — your demo access is ready"
+        if is_demo
+        else "Your Turnip VPN is ready — connect in 60 seconds"
+    )
     html    = _build_html(creds, plan)
     text    = _build_text(creds, plan)
 
@@ -439,6 +445,17 @@ def _build_html(creds: dict, plan: dict) -> str:
     server   = creds["server"]
     expiry   = creds["expiry_display"]
     plan_name= plan["name"]
+    is_demo  = plan_name.strip().lower() == "demo"
+    demo_banner = (
+        """
+  <div style=\"background:rgba(79,163,224,0.08);border:1px solid rgba(79,163,224,0.28);color:#b9e7ff;padding:12px 14px;border-radius:10px;margin-bottom:14px;font-size:13px;line-height:1.55\">
+    <strong style=\"color:#dff4ff\">You've been chosen to help test the first version of Turnip VPN.</strong><br>
+    Thanks for helping us validate early access performance and setup experience.
+  </div>
+        """
+        if is_demo
+        else ""
+    )
 
     return f"""<!DOCTYPE html>
 <html>
@@ -474,6 +491,7 @@ def _build_html(creds: dict, plan: dict) -> str:
 
   <div class="hero">
     <div class="plan-badge">{plan_name.upper()} PLAN · ACTIVE</div>
+    {demo_banner}
     <h1>Your VPN is ready.</h1>
     <p>Your account is live. Open the attached <strong style="color:#e8f0fe">.mobileconfig</strong> file on iOS or macOS to connect in one tap — no manual setup needed.</p>
 
@@ -538,11 +556,19 @@ def _build_html(creds: dict, plan: dict) -> str:
 def _build_text(creds: dict, plan: dict) -> str:
     devices = creds.get("devices") or [{"device_number": 1, "username": creds["username"], "password": creds["password"], "server": creds["server"]}]
     cred_lines = _device_cred_block_text(devices)
+    plan_name = (plan or {}).get("name", "")
+    is_demo = plan_name.strip().lower() == "demo"
+    demo_text = (
+        "You've been chosen to help test the first version of Turnip VPN. "
+        "Thanks for helping us validate early access performance and setup experience.\n\n"
+        if is_demo
+        else ""
+    )
     return f"""Turnip VPN — Your account is ready
 
 Plan: {plan['name']}
 
-VPN CREDENTIALS
+{demo_text}VPN CREDENTIALS
 ───────────────
 {cred_lines}
 VPN Type : IKEv2 / IPsec
