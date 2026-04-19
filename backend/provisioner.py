@@ -28,6 +28,7 @@ SERVERS_BY_REGION = {s["region"]: s for s in SERVERS if s.get("active")}
 
 # Continent codes that trigger auto-selection of best server in that region
 CONTINENT_CODES = {"eu", "na", "as"}
+LOCAL_HOSTS_FOR_CLIENTS = {"127.0.0.1", "localhost", "::1"}
 
 # ── Plans ─────────────────────────────────────────────────────────────────────
 
@@ -65,7 +66,10 @@ def get_server_host(region: str) -> str:
     """Resolve a specific server region code (nl/us/sg...) to a VPN server public host."""
     server = SERVERS_BY_REGION.get(region)
     if server:
-        return server.get("public_host") or server["host"]
+        host = server.get("public_host") or server["host"]
+        if host in LOCAL_HOSTS_FOR_CLIENTS:
+            return SERVER_ADDR
+        return host
     return SERVER_ADDR  # fallback to env var
 
 
@@ -79,7 +83,10 @@ def get_server_for_continent(continent: str) -> dict:
         from multiserver import get_best_server_for_continent
         best = get_best_server_for_continent(continent)
         if best:
-            return {"host": best.public_host, "region": best.region}
+            host = best.public_host or best.host
+            if host in LOCAL_HOSTS_FOR_CLIENTS:
+                host = SERVER_ADDR
+            return {"host": host, "region": best.region}
     except ImportError:
         log.warning("multiserver module not available — using static server fallback")
     except Exception as exc:
@@ -87,11 +94,17 @@ def get_server_for_continent(continent: str) -> dict:
     # Fallback: first active server in the requested continent
     for s in SERVERS:
         if s.get("active") and s.get("continent", "").lower() == continent.lower():
-            return {"host": s.get("public_host") or s["host"], "region": s["region"]}
+            host = s.get("public_host") or s["host"]
+            if host in LOCAL_HOSTS_FOR_CLIENTS:
+                host = SERVER_ADDR
+            return {"host": host, "region": s["region"]}
     # Last resort: any active server
     for s in SERVERS:
         if s.get("active"):
-            return {"host": s.get("public_host") or s["host"], "region": s["region"]}
+            host = s.get("public_host") or s["host"]
+            if host in LOCAL_HOSTS_FOR_CLIENTS:
+                host = SERVER_ADDR
+            return {"host": host, "region": s["region"]}
     return {"host": SERVER_ADDR, "region": continent}
 
 
