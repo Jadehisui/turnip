@@ -53,6 +53,19 @@ const Admin = () => {
         }
     };
 
+    const readApiError = async (res, fallback = 'Request failed') => {
+        try {
+            const data = await res.json();
+            return data?.error || fallback;
+        } catch (_) {
+            try {
+                const text = await res.text();
+                if (text && text.trim()) return text.slice(0, 160);
+            } catch (_) {}
+            return fallback;
+        }
+    };
+
     const refresh = async () => {
         if (!token) return;
         try {
@@ -251,16 +264,16 @@ const Admin = () => {
                     duration_days: 30,
                 }),
             });
-            const data = await res.json();
             if (res.ok) {
+                const data = await res.json();
                 const count = Array.isArray(data.devices) ? data.devices.length : parsed;
                 showToast(`Generated ${count} config(s) for ${email}${data.emailed_user ? ' + emailed' : ''}`);
                 refresh();
             } else {
-                showToast(data.error || 'Config generation failed', 'err');
+                showToast(await readApiError(res, 'Config generation failed'), 'err');
             }
-        } catch {
-            showToast('API error', 'err');
+        } catch (error) {
+            showToast(`API error: ${error.message || 'request failed'}`, 'err');
         }
     };
 

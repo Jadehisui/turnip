@@ -415,123 +415,136 @@ def restart_vpn():
 @app.route("/api/subscribers/<path:email>", methods=["PUT"])
 def update_subscriber(email):
     _require_auth()
-    data   = request.get_json(silent=True) or {}
-    action = data.get("action", "")
-    days   = max(1, min(int(data.get("days", 30)), 3650))
+    try:
+        data   = request.get_json(silent=True) or {}
+        action = data.get("action", "")
+        days   = max(1, min(int(data.get("days", 30)), 3650))
 
-    if action == "extend":
-        admin_update_subscription(email, status="active", extend_days=days)
-    elif action == "activate":
-        provision = bool(data.get("provision", True))
-        send_email = bool(data.get("send_email", True))
-        sub = get_subscription(email=email)
+        if action == "extend":
+            admin_update_subscription(email, status="active", extend_days=days)
+        elif action == "activate":
+            provision = bool(data.get("provision", True))
+            send_email = bool(data.get("send_email", True))
+            sub = get_subscription(email=email)
 
-        if provision:
-            plan = get_plan_by_name((sub or {}).get("plan_name", "Pro"))
-            region = data.get("region") or (sub or {}).get("server_region", "eu")
+            if provision:
+                plan = get_plan_by_name((sub or {}).get("plan_name", "Pro"))
+                region = data.get("region") or (sub or {}).get("server_region", "eu")
 
-            _deprovision_existing_devices(email)
-            creds = provision_user(email=email, plan=plan, region=region)
-            ensure_user(email)
-            admin_save_provisioned_credentials(
-                email=email,
-                plan_name=plan["name"],
-                region=creds.get("region", region),
-                creds=creds,
-                duration_days=plan.get("duration_days", 30),
-                status="active",
-            )
+                _deprovision_existing_devices(email)
+                creds = provision_user(email=email, plan=plan, region=region)
+                ensure_user(email)
+                admin_save_provisioned_credentials(
+                    email=email,
+                    plan_name=plan["name"],
+                    region=creds.get("region", region),
+                    creds=creds,
+                    duration_days=plan.get("duration_days", 30),
+                    status="active",
+                )
 
-            emailed_user = False
-            emailed_admin = False
-            if send_email:
-                try:
-                    send_welcome_email(email, creds, plan)
-                    emailed_user = True
-                except Exception as exc:
-                    log.warning(f"Activation email failed for {email}: {exc}")
-                emailed_admin = _send_admin_copy_if_configured(creds, plan)
+                emailed_user = False
+                emailed_admin = False
+                if send_email:
+                    try:
+                        send_welcome_email(email, creds, plan)
+                        emailed_user = True
+                    except Exception as exc:
+                        log.warning(f"Activation email failed for {email}: {exc}")
+                    emailed_admin = _send_admin_copy_if_configured(creds, plan)
 
-            log.info(f"Admin activate on {email} | provisioned={provision} | emailed_user={emailed_user} | emailed_admin={emailed_admin}")
-            return jsonify({
-                "ok": True,
-                "email": email,
-                "action": action,
-                "provisioned": True,
-                "emailed_user": emailed_user,
-                "emailed_admin": emailed_admin,
-                "devices": len(creds.get("devices", [])),
-            })
+                log.info(f"Admin activate on {email} | provisioned={provision} | emailed_user={emailed_user} | emailed_admin={emailed_admin}")
+                return jsonify({
+                    "ok": True,
+                    "email": email,
+                    "action": action,
+                    "provisioned": True,
+                    "emailed_user": emailed_user,
+                    "emailed_admin": emailed_admin,
+                    "devices": len(creds.get("devices", [])),
+                })
 
-        admin_update_subscription(email, status="active")
-    elif action == "suspend":
-        admin_update_subscription(email, status="disabled")
-    elif action == "expire":
-        admin_update_subscription(email, status="expired")
-    else:
-        return jsonify({"error": f"Unknown action: {action}"}), 400
+            admin_update_subscription(email, status="active")
+        elif action == "suspend":
+            admin_update_subscription(email, status="disabled")
+        elif action == "expire":
+            admin_update_subscription(email, status="expired")
+        else:
+            return jsonify({"error": f"Unknown action: {action}"}), 400
 
-    log.info(f"Admin {action} on {email}")
-    return jsonify({"ok": True, "email": email, "action": action})
+        log.info(f"Admin {action} on {email}")
+        return jsonify({"ok": True, "email": email, "action": action})
+    except RuntimeError as exc:
+        log.warning(f"Admin action failed on {email}: {exc}")
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        log.exception(f"Admin action failed on {email}: {exc}")
+        return jsonify({"error": "Activation failed on server. Check turnip-api logs."}), 500
 
 
 @app.route("/api/subscribers/<path:email>/generate-config", methods=["POST"])
 def generate_demo_config(email):
     _require_auth()
+    try:
+        data = request.get_json(silent=True) or {}
+        sub = get_subscription(email=email)
+        region = (data.get("region") or "eu").strip().lower()
+        plan_name = (data.get("plan_name") or (sub or {}).get("plan_name") or "Demo").strip()
+        duration_days = max(1, min(int(data.get("duration_days", 30)), 3650))
+        num_devices = max(1, min(int(data.get("num_devices", 1)), 10))
+        send_email = bool(data.get("send_email", True))
+        replace_existing = bool(data.get("replace_existing", True))
 
-    data = request.get_json(silent=True) or {}
-    sub = get_subscription(email=email)
-    region = (data.get("region") or "eu").strip().lower()
-    plan_name = (data.get("plan_name") or (sub or {}).get("plan_name") or "Demo").strip()
-    duration_days = max(1, min(int(data.get("duration_days", 30)), 3650))
-    num_devices = max(1, min(int(data.get("num_devices", 1)), 10))
-    send_email = bool(data.get("send_email", True))
-    replace_existing = bool(data.get("replace_existing", True))
+        if replace_existing:
+            _deprovision_existing_devices(email)
 
-    if replace_existing:
-        _deprovision_existing_devices(email)
+        creds = provision_user_with_device_count(
+            email=email,
+            plan_name=plan_name,
+            duration_days=duration_days,
+            device_count=num_devices,
+            region=region,
+        )
+        ensure_user(email)
+        admin_save_provisioned_credentials(
+            email=email,
+            plan_name=plan_name,
+            region=creds.get("region", region),
+            creds=creds,
+            duration_days=duration_days,
+            status="active",
+        )
 
-    creds = provision_user_with_device_count(
-        email=email,
-        plan_name=plan_name,
-        duration_days=duration_days,
-        device_count=num_devices,
-        region=region,
-    )
-    ensure_user(email)
-    admin_save_provisioned_credentials(
-        email=email,
-        plan_name=plan_name,
-        region=creds.get("region", region),
-        creds=creds,
-        duration_days=duration_days,
-        status="active",
-    )
+        plan_payload = {"name": plan_name, "duration_days": duration_days, "devices": num_devices}
+        emailed_user = False
+        emailed_admin = False
+        if send_email:
+            try:
+                send_welcome_email(email, creds, plan_payload)
+                emailed_user = True
+            except Exception as exc:
+                log.warning(f"Demo config email failed for {email}: {exc}")
+            emailed_admin = _send_admin_copy_if_configured(creds, plan_payload)
 
-    plan_payload = {"name": plan_name, "duration_days": duration_days, "devices": num_devices}
-    emailed_user = False
-    emailed_admin = False
-    if send_email:
-        try:
-            send_welcome_email(email, creds, plan_payload)
-            emailed_user = True
-        except Exception as exc:
-            log.warning(f"Demo config email failed for {email}: {exc}")
-        emailed_admin = _send_admin_copy_if_configured(creds, plan_payload)
-
-    log.info(
-        f"Admin generated config for {email} | devices={num_devices} | region={region} | "
-        f"emailed_user={emailed_user} | emailed_admin={emailed_admin}"
-    )
-    return jsonify({
-        "ok": True,
-        "email": email,
-        "region": creds.get("region", region),
-        "plan_name": plan_name,
-        "devices": creds.get("devices", []),
-        "emailed_user": emailed_user,
-        "emailed_admin": emailed_admin,
-    })
+        log.info(
+            f"Admin generated config for {email} | devices={num_devices} | region={region} | "
+            f"emailed_user={emailed_user} | emailed_admin={emailed_admin}"
+        )
+        return jsonify({
+            "ok": True,
+            "email": email,
+            "region": creds.get("region", region),
+            "plan_name": plan_name,
+            "devices": creds.get("devices", []),
+            "emailed_user": emailed_user,
+            "emailed_admin": emailed_admin,
+        })
+    except RuntimeError as exc:
+        log.warning(f"Config generation failed for {email}: {exc}")
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        log.exception(f"Config generation failed for {email}: {exc}")
+        return jsonify({"error": "Config generation failed on server. Check turnip-api logs."}), 500
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
