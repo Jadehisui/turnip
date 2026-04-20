@@ -33,6 +33,7 @@ LOCAL_HOSTS_FOR_CLIENTS = {"127.0.0.1", "localhost", "::1"}
 # ── Plans ─────────────────────────────────────────────────────────────────────
 
 PLANS = [
+    {"name": "Demo",     "min_amount": 0,     "max_amount": 0,      "duration_days": 7,  "devices": 1},
     {"name": "Basic",    "min_amount": 1,     "max_amount": 6999,   "duration_days": 30, "devices": 1},
     {"name": "Pro",      "min_amount": 7000,  "max_amount": 18999,  "duration_days": 30, "devices": 5},
     {"name": "Business", "min_amount": 19000, "max_amount": 999999, "duration_days": 30, "devices": 10},
@@ -184,7 +185,11 @@ def provision_user(email: str, plan: dict, region: str = "eu") -> dict:
         })
 
     # Single secrets reload after all users are written
-    _reload_ipsec_secrets()
+    if not _reload_ipsec_secrets():
+        raise RuntimeError(
+            "VPN credentials were written but failed to reload StrongSwan secrets. "
+            "Run: ipsec secrets (or swanctl --load-creds) and check service logs."
+        )
 
     log.info(
         f"Provisioned {n_devices} device(s) for {email} "
@@ -216,6 +221,9 @@ def provision_user_with_device_count(
 ) -> dict:
     """Provision VPN credentials with an explicit device count for admin/demo flows."""
     safe_devices = max(1, min(int(device_count), 10))
+    if (plan_name or "").strip().lower() == "demo":
+        # Demo should always provision a single config/profile.
+        safe_devices = 1
     plan = {
         "name": plan_name or "Demo",
         "duration_days": max(1, int(duration_days or 30)),
@@ -232,7 +240,8 @@ def deprovision_user(username: str):
         lines = Path(SECRETS_FILE).read_text().splitlines(keepends=True)
         filtered = [l for l in lines if not l.strip().startswith(f"{username} :")]
         Path(SECRETS_FILE).write_text("".join(filtered))
-        _reload_ipsec_secrets()
+        if not _reload_ipsec_secrets():
+            log.warning("Deprovisioned user but failed to reload StrongSwan secrets")
         log.info(f"Deprovisioned: {username}")
     except Exception as e:
         log.error(f"Failed to deprovision {username}: {e}")
@@ -241,13 +250,27 @@ def deprovision_user(username: str):
 def _add_ipsec_user(username: str, password: str):
     with open(SECRETS_FILE, "a") as f:
         f.write(f'\n{username} : EAP "{password}"\n')
+    try:
+        os.chmod(SECRETS_FILE, 0o600)
+    except Exception:
+        # Non-fatal here; diagnose-vpn.sh now checks and reports permissions.
+        pass
 
 
 def _reload_ipsec_secrets():
     try:
-        subprocess.run(["ipsec", "secrets"], timeout=5, check=True)
+        subprocess.run(["ipsec", "secrets"], timeout=8, check=True)
+        return True
     except Exception as e:
-        log.warning(f"ipsec secrets reload failed (non-fatal): {e}")
+        log.warning(f"ipsec secrets reload failed: {e}")
+
+    try:
+        subprocess.run(["swanctl", "--load-creds"], timeout=8, check=True)
+        return True
+    except Exception as e:
+        log.error(f"swanctl credential reload failed: {e}")
+
+    return False
 
 
 # ── .mobileconfig generator ───────────────────────────────────────────────────
@@ -326,8 +349,8 @@ def generate_mobileconfig(username: str, password: str, server: str) -> str:
         <string>{server}</string>
         <key>RemoteIdentifier</key>
         <string>{server}</string>
-        <key>LocalIdentifier</key>
-        <string>{username}</string>
+                <key>LocalIdentifier</key>
+                <string>{username}</string>
         <key>AuthenticationMethod</key>
         <string>None</string>
         <key>ExtendedAuthEnabled</key>
@@ -336,30 +359,32 @@ def generate_mobileconfig(username: str, password: str, server: str) -> str:
         <string>{username}</string>
         <key>AuthPassword</key>
         <string>{password}</string>
+                <key>ChildSecurityAssociationParameters</key>
+                <dict>
+                    <key>EncryptionAlgorithm</key>
+                    <string>AES-256-GCM</string>
+                    <key>IntegrityAlgorithm</key>
+                    <string>SHA2-256</string>
+                    <key>DiffieHellmanGroup</key>
+                    <integer>14</integer>
+                </dict>
+                <key>IKESecurityAssociationParameters</key>
+                <dict>
+                    <key>EncryptionAlgorithm</key>
+                    <string>AES-256-GCM</string>
+                    <key>IntegrityAlgorithm</key>
+                    <string>SHA2-256</string>
+                    <key>DiffieHellmanGroup</key>
+                    <integer>14</integer>
+                </dict>
         <key>DeadPeerDetectionRate</key>
         <string>Medium</string>
+                <key>UseConfigurationAttributeInternalIPSubnet</key>
+                <integer>0</integer>
         <key>EnablePFS</key>
         <true/>
         <key>DisableRedirect</key>
         <true/>
-        <key>ChildSecurityAssociationParameters</key>
-        <dict>
-          <key>EncryptionAlgorithm</key>
-          <string>AES-256-GCM</string>
-          <key>IntegrityAlgorithm</key>
-          <string>SHA2-256</string>
-          <key>DiffieHellmanGroup</key>
-          <integer>14</integer>
-        </dict>
-        <key>IKESecurityAssociationParameters</key>
-        <dict>
-          <key>EncryptionAlgorithm</key>
-          <string>AES-256-GCM</string>
-          <key>IntegrityAlgorithm</key>
-          <string>SHA2-256</string>
-          <key>DiffieHellmanGroup</key>
-          <integer>14</integer>
-        </dict>
       </dict>
       <key>IPv4</key>
       <dict>

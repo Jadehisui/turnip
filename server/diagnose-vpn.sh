@@ -24,6 +24,8 @@ echo ""
 
 VPN_SUBNET="10.10.10.0/24"
 PRIMARY_IFACE=$(ip route show default | awk '/default/ {print $5}' | head -1)
+SECRETS_FILE="/etc/ipsec.secrets"
+IPSEC_CONF="/etc/ipsec.conf"
 info "Primary interface : ${PRIMARY_IFACE}"
 info "VPN subnet        : ${VPN_SUBNET}"
 echo ""
@@ -115,19 +117,90 @@ fi
 # ── 6. StrongSwan running ─────────────────────────────────────────────────────
 echo ""
 echo -e "${BOLD}6. StrongSwan Service${NC}"
+SS_UNIT=""
 if systemctl is-active --quiet strongswan-starter 2>/dev/null; then
+    SS_UNIT="strongswan-starter"
     ok "strongswan-starter is running"
 elif systemctl is-active --quiet strongswan 2>/dev/null; then
+    SS_UNIT="strongswan"
     ok "strongswan is running"
 else
     fail "StrongSwan is NOT running"
     fix "Attempting to start StrongSwan..."
     systemctl start strongswan-starter 2>/dev/null || systemctl start strongswan 2>/dev/null || true
     sleep 2
-    systemctl is-active --quiet strongswan-starter 2>/dev/null && ok "StrongSwan started" || fail "StrongSwan still not running — check: journalctl -u strongswan-starter -n 50"
+    if systemctl is-active --quiet strongswan-starter 2>/dev/null; then
+        SS_UNIT="strongswan-starter"
+        ok "StrongSwan started"
+    elif systemctl is-active --quiet strongswan 2>/dev/null; then
+        SS_UNIT="strongswan"
+        ok "StrongSwan started"
+    else
+        fail "StrongSwan still not running — check: journalctl -u strongswan-starter -n 50"
+    fi
 fi
 
-# ── 7. Reload UFW if fixes were applied ──────────────────────────────────────
+# ── 7. Config and secrets sanity ──────────────────────────────────────────────
+echo ""
+echo -e "${BOLD}7. Config + Secrets Sanity${NC}"
+if [[ -f "$IPSEC_CONF" ]]; then
+    ok "Found ${IPSEC_CONF}"
+else
+    fail "Missing ${IPSEC_CONF}"
+fi
+
+if [[ -f "$SECRETS_FILE" ]]; then
+    ok "Found ${SECRETS_FILE}"
+else
+    fail "Missing ${SECRETS_FILE}"
+fi
+
+if [[ -f "$SECRETS_FILE" ]]; then
+    PERM=$(stat -c "%a" "$SECRETS_FILE" 2>/dev/null || echo "")
+    if [[ "$PERM" == "600" ]]; then
+        ok "${SECRETS_FILE} permissions are 600"
+    else
+        warn "${SECRETS_FILE} permissions are ${PERM:-unknown} (recommended: 600)"
+    fi
+
+    USER_LINES=$(grep -Ec '^\S+\s*:\s*EAP\s+"' "$SECRETS_FILE" 2>/dev/null || true)
+    if [[ "$USER_LINES" -gt 0 ]]; then
+        ok "Found ${USER_LINES} EAP user entry/entries in ${SECRETS_FILE}"
+    else
+        fail "No EAP users found in ${SECRETS_FILE}"
+    fi
+fi
+
+# ── 8. Handshake/auth visibility checks ──────────────────────────────────────
+echo ""
+echo -e "${BOLD}8. Handshake/Auth Visibility${NC}"
+if command -v ipsec >/dev/null 2>&1; then
+    if ipsec statusall >/tmp/turnip-ipsec-statusall.txt 2>/tmp/turnip-ipsec-statusall.err; then
+        ok "ipsec statusall ran successfully"
+    else
+        warn "ipsec statusall failed — see /tmp/turnip-ipsec-statusall.err"
+    fi
+
+    if ipsec secrets >/tmp/turnip-ipsec-secrets.txt 2>/tmp/turnip-ipsec-secrets.err; then
+        ok "ipsec secrets reload command succeeded"
+    else
+        fail "ipsec secrets command failed — credentials may not be loaded"
+    fi
+else
+    warn "ipsec CLI not found — cannot run statusall/secrets checks"
+fi
+
+if [[ -n "$SS_UNIT" ]]; then
+    AUTH_FAILS=$(journalctl -u "$SS_UNIT" --since "-30 min" --no-pager 2>/dev/null | grep -Eic 'AUTHENTICATION_FAILED|EAP|NO_PROPOSAL_CHOSEN|invalid ID')
+    if [[ "$AUTH_FAILS" -gt 0 ]]; then
+        warn "Detected ${AUTH_FAILS} auth/proposal warning(s) in ${SS_UNIT} logs in last 30m"
+        warn "Run: journalctl -u ${SS_UNIT} --since '-30 min' | grep -Ei 'AUTHENTICATION_FAILED|EAP|NO_PROPOSAL_CHOSEN|invalid ID'"
+    else
+        ok "No recent auth/proposal failures detected in ${SS_UNIT} logs"
+    fi
+fi
+
+# ── 9. Reload UFW if fixes were applied ──────────────────────────────────────
 if [[ $FIXES_APPLIED -gt 0 ]]; then
     echo ""
     info "Reloading UFW to apply changes..."

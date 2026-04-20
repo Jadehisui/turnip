@@ -508,6 +508,8 @@ def generate_demo_config(email):
         plan_name = (data.get("plan_name") or (sub or {}).get("plan_name") or "Demo").strip()
         duration_days = max(1, min(int(data.get("duration_days", 30)), 3650))
         num_devices = max(1, min(int(data.get("num_devices", 1)), 10))
+        if plan_name.lower() == "demo":
+            num_devices = 1
         send_email = bool(data.get("send_email", True))
         replace_existing = bool(data.get("replace_existing", True))
 
