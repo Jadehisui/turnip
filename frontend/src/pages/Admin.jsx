@@ -20,6 +20,14 @@ const Admin = () => {
     const [addMsg, setAddMsg] = useState({ text: '', type: '' });
     const [toast, setToast] = useState({ show: false, text: '', type: 'ok' });
     const [subscribers, setSubscribers] = useState([]);
+    const [broadcast, setBroadcast] = useState(() => {
+        try {
+            return JSON.parse(localStorage.getItem('admin_broadcast_draft') || '{"subject":"","body":"","audience":"all"}');
+        } catch {
+            return { subject: '', body: '', audience: 'all' };
+        }
+    });
+    const [broadcastSending, setBroadcastSending] = useState(false);
     const pollTimer = useRef(null);
 
     const showToast = (text, type = 'ok') => {
@@ -218,6 +226,68 @@ const Admin = () => {
         }
     };
 
+    const saveBroadcastDraft = () => {
+        localStorage.setItem('admin_broadcast_draft', JSON.stringify(broadcast));
+        showToast('Broadcast draft saved');
+    };
+
+    const runBroadcastDryRun = async () => {
+        try {
+            const res = await apiFetch('/api/subscribers/broadcast-email', {
+                method: 'POST',
+                body: JSON.stringify({
+                    subject: broadcast.subject,
+                    body: broadcast.body,
+                    audience: broadcast.audience,
+                    dry_run: true,
+                }),
+            });
+            const data = await res.json();
+            if (res.ok) {
+                showToast(`Dry run: ${data.recipient_count} recipient(s) in ${data.audience}`);
+            } else {
+                showToast(data.error || 'Dry run failed', 'err');
+            }
+        } catch {
+            showToast('API error', 'err');
+        }
+    };
+
+    const sendBroadcast = async () => {
+        if (!broadcast.subject.trim()) {
+            showToast('Subject is required', 'err');
+            return;
+        }
+        if (!broadcast.body.trim()) {
+            showToast('Body is required', 'err');
+            return;
+        }
+        if (!window.confirm(`Send this email to ${broadcast.audience} users now?`)) return;
+
+        setBroadcastSending(true);
+        try {
+            const res = await apiFetch('/api/subscribers/broadcast-email', {
+                method: 'POST',
+                body: JSON.stringify({
+                    subject: broadcast.subject,
+                    body: broadcast.body,
+                    audience: broadcast.audience,
+                    dry_run: false,
+                }),
+            });
+            const data = await res.json();
+            if (res.ok) {
+                showToast(`Broadcast sent: ${data.sent}/${data.recipient_count}`);
+            } else {
+                showToast(data.error || 'Broadcast failed', 'err');
+            }
+        } catch {
+            showToast('API error', 'err');
+        } finally {
+            setBroadcastSending(false);
+        }
+    };
+
     const generatePass = () => {
         const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$';
         return Array.from({ length: 18 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
@@ -236,6 +306,10 @@ const Admin = () => {
         }
         return () => clearInterval(pollTimer.current);
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(() => {
+        localStorage.setItem('admin_broadcast_draft', JSON.stringify(broadcast));
+    }, [broadcast]);
 
     const filteredUsers = users.filter((u) => u.username.toLowerCase().includes(searchQuery.toLowerCase()));
 
@@ -496,6 +570,51 @@ const Admin = () => {
                     </div>
                 </div>
 
+                <div className="subs-card">
+                    <div className="card-header">
+                        <h3>Broadcast Email</h3>
+                        <div className="badge">draft + send</div>
+                    </div>
+                    <div className="broadcast-grid">
+                        <div className="broadcast-row">
+                            <label>Audience</label>
+                            <select
+                                value={broadcast.audience}
+                                onChange={(e) => setBroadcast({ ...broadcast, audience: e.target.value })}
+                            >
+                                <option value="all">All users</option>
+                                <option value="active">Active subscribers</option>
+                                <option value="registered">Registered without subscription</option>
+                            </select>
+                        </div>
+                        <div className="broadcast-row">
+                            <label>Subject</label>
+                            <input
+                                type="text"
+                                value={broadcast.subject}
+                                onChange={(e) => setBroadcast({ ...broadcast, subject: e.target.value })}
+                                placeholder="Subject line"
+                            />
+                        </div>
+                        <div className="broadcast-row">
+                            <label>Body</label>
+                            <textarea
+                                value={broadcast.body}
+                                onChange={(e) => setBroadcast({ ...broadcast, body: e.target.value })}
+                                rows={8}
+                                placeholder="Write your email body here..."
+                            />
+                        </div>
+                        <div className="broadcast-actions">
+                            <button className="sub-btn ext" onClick={saveBroadcastDraft}>Save Draft</button>
+                            <button className="sub-btn sus" onClick={runBroadcastDryRun}>Dry Run</button>
+                            <button className="sub-btn act" onClick={sendBroadcast} disabled={broadcastSending}>
+                                {broadcastSending ? 'Sending...' : 'Send to Audience'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
                 <div className="main-grid">
                     {/* User Management */}
                     <div className="users-card">
@@ -748,6 +867,15 @@ const Admin = () => {
         .fleet-meta { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 9px; color: var(--text3); padding-top: 0.75rem; border-top: 1px solid var(--border); }
 
         .subs-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 16px; padding: 1.5rem; margin-bottom: 1.5rem; }
+                .broadcast-grid { display: flex; flex-direction: column; gap: 10px; }
+                .broadcast-row { display: flex; flex-direction: column; gap: 6px; }
+                .broadcast-row label { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--text3); }
+                .broadcast-row input, .broadcast-row textarea, .broadcast-row select {
+                    background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+                    color: var(--text); font-size: 13px; padding: 10px 12px; outline: none;
+                }
+                .broadcast-row textarea { resize: vertical; min-height: 140px; }
+                .broadcast-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; margin-top: 4px; }
         .subs-table-wrap { overflow-x: auto; max-height: 320px; overflow-y: auto; }
         .subs-table { width: 100%; border-collapse: collapse; font-size: 13px; }
         .subs-table th { font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; color: var(--text3); padding: 0 12px 10px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }

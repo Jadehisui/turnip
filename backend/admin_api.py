@@ -9,7 +9,7 @@ the ADMIN_TOKEN environment variable.
 Talks to VPN servers via SSH using multiserver.py helpers.
 """
 
-import os, re, time, subprocess, logging
+import os, re, time, subprocess, logging, html
 from pathlib import Path
 from flask import Flask, jsonify, request, abort
 from flask_cors import CORS
@@ -39,7 +39,7 @@ from provisioner import (
     generate_mobileconfig,
     get_server_host,
 )
-from emailer import send_welcome_email
+from emailer import send_welcome_email, send_transactional_email
 
 from multiserver import (
     load_servers,
@@ -217,6 +217,22 @@ def _send_admin_copy_if_configured(creds: dict, plan: dict):
     except Exception as exc:
         log.warning(f"Admin copy email failed to {admin_email}: {exc}")
         return False
+
+
+def _build_broadcast_html(subject: str, body_text: str) -> str:
+    """Render safe HTML from plain text body for transactional/broadcast sends."""
+    escaped = html.escape(body_text).replace("\n", "<br>")
+    escaped_subject = html.escape(subject)
+    return (
+        "<!DOCTYPE html><html><body "
+        "style=\"font-family:-apple-system,Segoe UI,Arial,sans-serif;background:#f7f8fb;" 
+        "margin:0;padding:24px;color:#111\">"
+        "<div style=\"max-width:640px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;"
+        "border-radius:10px;padding:24px\">"
+        f"<h2 style=\"margin:0 0 14px;font-size:20px\">{escaped_subject}</h2>"
+        f"<div style=\"font-size:14px;line-height:1.7\">{escaped}</div>"
+        "</div></body></html>"
+    )
 
 
 def _parse_tunnels(ipsec_out: str) -> list[dict]:
@@ -415,6 +431,75 @@ def list_subscribers():
         return jsonify({"subscribers": users, "total": len(users)})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/subscribers/broadcast-email", methods=["POST"])
+def broadcast_email_to_subscribers():
+    _require_auth()
+    try:
+        data = request.get_json(silent=True) or {}
+        subject = (data.get("subject") or "").strip()
+        body = (data.get("body") or "").strip()
+        audience = (data.get("audience") or "all").strip().lower()
+        dry_run = bool(data.get("dry_run", False))
+
+        if not subject:
+            return jsonify({"error": "subject required"}), 400
+        if not body:
+            return jsonify({"error": "body required"}), 400
+        if audience not in {"all", "active", "registered"}:
+            return jsonify({"error": "audience must be one of: all, active, registered"}), 400
+
+        users = get_all_users()
+        recipients = []
+        for u in users:
+            email = (u.get("email") or "").strip().lower()
+            if not email:
+                continue
+            if audience == "active" and u.get("sub_status") not in {"active", "non_renewing"}:
+                continue
+            if audience == "registered" and u.get("sub_status") in {"active", "non_renewing", "expired", "disabled"}:
+                continue
+            recipients.append(email)
+
+        # Preserve order while deduplicating
+        recipients = list(dict.fromkeys(recipients))
+
+        if dry_run:
+            return jsonify({
+                "ok": True,
+                "dry_run": True,
+                "audience": audience,
+                "recipient_count": len(recipients),
+                "sample": recipients[:10],
+            })
+
+        html_body = _build_broadcast_html(subject, body)
+        sent = 0
+        failures = []
+        for recipient in recipients:
+            try:
+                send_transactional_email(recipient, subject, html_body, body)
+                sent += 1
+            except Exception as exc:
+                failures.append({"email": recipient, "error": str(exc)})
+
+        log.info(
+            f"Admin broadcast completed | audience={audience} | recipients={len(recipients)} "
+            f"| sent={sent} | failed={len(failures)}"
+        )
+        return jsonify({
+            "ok": True,
+            "dry_run": False,
+            "audience": audience,
+            "recipient_count": len(recipients),
+            "sent": sent,
+            "failed": len(failures),
+            "failures": failures[:50],
+        })
+    except Exception as exc:
+        log.exception(f"Broadcast email failed: {exc}")
+        return jsonify({"error": "Broadcast failed on server. Check turnip-api logs."}), 500
 
 
 @app.route("/api/vpn/restart", methods=["POST"])
