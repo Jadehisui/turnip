@@ -7,24 +7,17 @@ import { useNavigate } from 'react-router-dom';
 const Pricing = () => {
     const { user } = useAuth() || {};
     const navigate = useNavigate();
-    const [country, setCountry] = useState(null);
     const [servers, setServers] = useState([]);
     const [region, setRegion] = useState('eu');
     const [paying, setPaying] = useState(false);
+    const [emailError, setEmailError] = useState('');
 
     useEffect(() => {
-        fetch('/api/geo')
-            .then(r => r.json())
-            .then(d => setCountry(d.country))
-            .catch(() => setCountry('NG'));
-
         fetch('/api/servers')
             .then(r => r.json())
             .then(d => setServers(d.servers || []))
             .catch(() => {});
     }, []);
-
-    const isNG = !country || country === 'NG';
 
     // Continent metadata for display
     const CONTINENT_META = {
@@ -52,9 +45,9 @@ const Pricing = () => {
     const plans = [
         {
             name: 'Basic',
-            price: isNG ? '4,999' : '4.99',
-            amount_ngn: isNG ? 4999 : 7984,
-            currency: isNG ? '₦' : '$',
+            price: '4.99',
+            amount_ngn: 7984,
+            currency: '$',
             devices: 1,
             period: '1 device · 30 days',
             features: ['1 device', 'AES-256 encryption', '2 server regions', 'Zero traffic logs', 'Email support'],
@@ -62,9 +55,9 @@ const Pricing = () => {
         },
         {
             name: 'Pro',
-            price: isNG ? '7,999' : '7.99',
-            amount_ngn: isNG ? 7999 : 12784,
-            currency: isNG ? '₦' : '$',
+            price: '7.99',
+            amount_ngn: 12784,
+            currency: '$',
             devices: 5,
             period: '5 devices · 30 days',
             features: ['5 devices', 'AES-256 encryption', 'All 4 server regions', 'Zero traffic logs', 'Priority support', 'Custom VPN profiles'],
@@ -72,9 +65,9 @@ const Pricing = () => {
         },
         {
             name: 'Business',
-            price: isNG ? '19,999' : '19.99',
-            amount_ngn: isNG ? 19999 : 31984,
-            currency: isNG ? '₦' : '$',
+            price: '19.99',
+            amount_ngn: 31984,
+            currency: '$',
             devices: 10,
             period: 'Up to 10 devices · 30 days',
             features: ['Up to 10 devices', 'AES-256 encryption', 'All 4 server regions', 'Zero traffic logs', 'Dedicated support', 'Multi-server sync'],
@@ -131,13 +124,6 @@ const Pricing = () => {
                 <div className="section-tag" style={{ display: 'inline-block' }}>// pricing</div>
                 <h2 className="section-title">Simple, transparent plans.</h2>
                 <p className="section-sub" style={{ margin: '0 auto 1.5rem' }}>Pay for access. No data harvesting, no upsells, no nonsense.</p>
-
-                {country && (
-                    <div className="geo-badge">
-                        <MapPin size={13} />
-                        {isNG ? '🇳🇬 Nigerian pricing (₦)' : '🌍 International pricing ($)'}
-                    </div>
-                )}
 
                 {availableContinents.length > 0 && (
                     <div className="region-picker">
