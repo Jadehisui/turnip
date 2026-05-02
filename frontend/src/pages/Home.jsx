@@ -36,7 +36,7 @@ const Hero = () => (
                     <h1>Encrypt<br />everything.<br /><em>Expose nothing.</em></h1>
                     <p>Enterprise-grade VPN built on StrongSwan IKEv2/IPsec. Connect any device directly through native OS settings — no app required. Your IP, private.</p>
                     <div className="hero-ctas">
-                        <a href="/pricing" className="btn btn-primary btn-lg">Start for ₦4,999/mo</a>
+                        <a href="/pricing" className="btn btn-primary btn-lg">Start for $4.99/mo</a>
                         <a href="#how" className="btn btn-outline btn-lg">See how it works</a>
                     </div>
                     <div className="hero-trust">
@@ -351,7 +351,7 @@ const CTABanner = () => (
                 <h2>Start encrypting<br />today.</h2>
                 <p>Instant activation. Zero setup complexity. Connect in under 60 seconds.</p>
                 <div className="cta-ctas">
-                    <a href="/pricing" className="btn btn-primary btn-lg">Get started — ₦4,999/mo</a>
+                    <a href="/pricing" className="btn btn-primary btn-lg">Get started — $4.99/mo</a>
                     <a href="/login" className="btn btn-outline btn-lg">Sign in →</a>
                 </div>
             </div>
